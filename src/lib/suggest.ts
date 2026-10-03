@@ -749,8 +749,36 @@ function collectKeywords(scan: Scan, covered: Uint8Array, index: LibraryIndex | 
   for (const [key, stats] of unigrams) {
     const [title, notes, text] = stats.counts;
     if (title === 0 && notes === 0 && text < minTextOnly) continue;
-    out.add(preferredSurface(stats), fieldScore(stats.counts) + vocabularyBonus(key), stats.firstSeen);
+    const surface = preferredSurface(stats);
+    // A verb mentioned once in passing ("the type sits on…") is not a subject.
+    if (title === 0 && notes + text === 1 && looksLikeVerb(surface)) continue;
+    out.add(surface, fieldScore(stats.counts) + vocabularyBonus(key), stats.firstSeen);
   }
+}
+
+// Everyday verbs (base forms). Creative verbs that double as subjects — print,
+// paint, draw, shoot, frame, design, type, press — are deliberately absent.
+const COMMON_VERBS: ReadonlySet<string> = new Set(
+  words(`sit stand lie hang make take give keep look feel seem show tell find think know want need
+  use try come get put let run turn move hold bring leave call start stop help play mean become begin
+  open close say ask work talk walk stay wait sound appear happen remain carry reach allow add spend
+  grow offer serve send expect build fall cut rise speak meet pay lose follow change watch learn
+  create provide include continue set sits lies says does goes gets puts lets runs`),
+);
+
+/** True for an everyday verb in any common inflection: sits, sitting, seemed, tries. */
+function looksLikeVerb(word: string): boolean {
+  const w = word.toLowerCase();
+  const bases = [w];
+  if (w.endsWith('ies')) bases.push(`${w.slice(0, -3)}y`);
+  if (w.endsWith('es')) bases.push(w.slice(0, -2));
+  if (w.endsWith('s')) bases.push(w.slice(0, -1));
+  if (w.endsWith('ied')) bases.push(`${w.slice(0, -3)}y`);
+  if (w.endsWith('ed')) bases.push(w.slice(0, -2), w.slice(0, -1));
+  if (w.endsWith('ing')) bases.push(w.slice(0, -3), `${w.slice(0, -3)}e`);
+  // Doubled final consonant: sitting → sit, stopped → stop.
+  if (/(.)\1(ing|ed)$/.test(w)) bases.push(w.replace(/(.)\1(ing|ed)$/, '$1'));
+  return bases.some((b) => COMMON_VERBS.has(b));
 }
 
 /** "#fff", "#c0392b": colour codes, not hashtags. Six letters ("#facade") stay words. */

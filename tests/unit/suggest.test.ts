@@ -453,3 +453,29 @@ describe('suggestTags: OCR line-break hyphenation', () => {
     expect(suggestTags(input({ text: 'Josef Müller-\nBrockmann' }))).toEqual(['josef', 'müller', 'brockmann']);
   });
 });
+
+describe('suggestTags: incidental verbs', () => {
+  it('does not suggest an everyday verb mentioned once in notes', () => {
+    const out = suggestTags({
+      title: 'Swiss poster, Basel 1959',
+      notes: 'Grid discipline with one red diagonal. The type sits on a strict baseline and the colour does all the shouting.',
+      text: '',
+      palette: [],
+      tags: ['poster', 'swiss', 'type'],
+      dismissed: [],
+      library: new Map([['colour', 2]]),
+    });
+    expect(out).not.toContain('sits');
+    expect(out).toContain('basel');
+    expect(out).toContain('colour');
+  });
+
+  it('recognises inflections but keeps creative nouns ending in -ing', () => {
+    const base = { title: '', notes: '', text: '', palette: [], tags: [], dismissed: [], library: new Map<string, number>() };
+    for (const verb of ['sitting', 'seemed', 'tries', 'stopped', 'keeps']) {
+      expect(suggestTags({ ...base, notes: `cyanotype ${verb} quietly` })).not.toContain(verb);
+    }
+    expect(suggestTags({ ...base, notes: 'an engraving study' })).toContain('engraving');
+    expect(suggestTags({ ...base, title: 'Sitting figure' })).toContain('sitting');
+  });
+});
