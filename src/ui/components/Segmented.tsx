@@ -25,10 +25,19 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
           className={`segmented__opt ${value === o.value ? 'is-on' : ''}`}
           onClick={() => onChange(o.value)}
           onKeyDown={(e) => {
-            const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
-            if (!d) return;
+            const n = options.length;
+            const j =
+              e.key === 'ArrowRight' || e.key === 'ArrowDown'
+                ? (i + 1) % n
+                : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+                  ? (i - 1 + n) % n
+                  : e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? n - 1
+                      : -1;
+            if (j < 0) return;
             e.preventDefault();
-            const j = (i + d + options.length) % options.length;
             onChange(options[j].value);
             refs.current[j]?.focus();
           }}

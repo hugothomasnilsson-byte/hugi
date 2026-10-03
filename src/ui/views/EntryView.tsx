@@ -514,9 +514,19 @@ function ExtractedText({ meta, label, live }: { meta: ImageMeta; label: string |
           </div>
         </div>
       ) : status === 'pending' || status === 'running' ? (
-        <p className="ocr__status label" role="status">
-          <span className="ocr__progress" style={{ transform: `scaleX(${status === 'running' ? progress : 0})` }} />
-          {status === 'running' ? `Reading text… ${Math.round(progress * 100)}%` : 'Waiting to read text…'}
+        <p className="ocr__status label">
+          <span
+            className="ocr__progress"
+            style={{ transform: `scaleX(${status === 'running' ? progress : 0})` }}
+            role="progressbar"
+            aria-label="Reading text"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={status === 'running' ? Math.round(progress * 100) : 0}
+          />
+          <span aria-hidden="true">
+            {status === 'running' ? `Reading text… ${Math.round(progress * 100)}%` : 'Waiting to read text…'}
+          </span>
         </p>
       ) : status === 'error' ? (
         <p className="ocr__status label">

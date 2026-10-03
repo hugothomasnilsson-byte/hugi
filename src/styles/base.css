@@ -188,15 +188,6 @@ mark {
   font-weight: 400;
 }
 
-/* iOS zooms into inputs set below 16px; keep touch inputs at 16px. */
-@media (pointer: coarse) {
-  input,
-  textarea,
-  select {
-    font-size: max(16px, 1em) !important;
-  }
-}
-
 /* Buttons styled as labels or links take the surrounding voice. */
 .label button,
 .label .link {

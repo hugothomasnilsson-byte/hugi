@@ -487,6 +487,7 @@ button.chip:hover {
   display: flex;
   gap: clamp(16px, 2vw, 28px);
   overflow-x: auto;
+  margin-top: -6px;
   padding-top: 6px;
   padding-bottom: 12px;
   margin: 0 calc(var(--gutter) * -1);
@@ -2220,7 +2221,8 @@ kbd {
     top: auto;
     bottom: calc(100% + 6px);
     max-height: 40vh;
-    overflow: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sheet__head,
   .sheet__body,
@@ -2239,4 +2241,30 @@ kbd {
 #main h1:focus,
 #main:focus {
   outline: none;
+}
+
+/* iOS zooms into inputs set below 16px; keep the small ones at 16px on touch. */
+@media (pointer: coarse) {
+  .tag-input__field input,
+  .tag-input__hash,
+  .tag-editor__input,
+  .field--inline,
+  .field--mono {
+    font-size: 16px;
+  }
+  .tag-input__field input {
+    height: 36px;
+  }
+  .tag-editor__input {
+    height: 36px;
+    width: 160px;
+  }
+  .page-head .link {
+    position: relative;
+  }
+  .page-head .link::before {
+    content: '';
+    position: absolute;
+    inset: -14px -10px;
+  }
 }

@@ -70,6 +70,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
   }, []);
   /** Set right before we close the sheet ourselves, to tell our close from the browser's. */
   const closing = useRef(false);
+  const navigatedAway = useRef(false);
   const downOnBackdrop = useRef(false);
   const dragTimer = useRef<number | undefined>(undefined);
 
@@ -187,7 +188,10 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
       vv?.removeEventListener('resize', fit);
       root.style.removeProperty('--vvh');
       root.classList.remove('is-locked');
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      // After adding, we navigate to the new entry; its heading takes focus instead.
+      if (!navigatedAway.current && opener && opener !== document.body && opener.isConnected) {
+        opener.focus({ preventScroll: true });
+      }
     };
   }, [request.files]);
 
@@ -232,6 +236,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         },
         editing?.id,
       );
+      if (!editing) navigatedAway.current = true;
       close(true);
       if (!editing) {
         navigate(href.entry(id));

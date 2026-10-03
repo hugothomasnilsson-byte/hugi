@@ -36,7 +36,7 @@ export function Lightbox({ images, start, title, onClose }: Props) {
     document.documentElement.classList.add('is-locked');
     return () => {
       document.documentElement.classList.remove('is-locked');
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      if (opener && opener !== document.body && opener.isConnected) opener.focus({ preventScroll: true });
     };
   }, [hasImage]);
 
@@ -72,7 +72,12 @@ export function Lightbox({ images, start, title, onClose }: Props) {
         }}
         onPointerDown={(e) => {
           swiped.current = false;
-          if (!zoomed) swipe.current = { x: e.clientX, y: e.clientY };
+          // Pinch-zoomed by the browser: let the user pan rather than swipe away.
+          if (zoomed || (window.visualViewport?.scale ?? 1) > 1.01) return;
+          swipe.current = { x: e.clientX, y: e.clientY };
+        }}
+        onPointerCancel={() => {
+          swipe.current = null;
         }}
         onPointerUp={(e) => {
           const s = swipe.current;
