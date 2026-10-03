@@ -2323,3 +2323,37 @@ kbd {
   border-color: var(--accent);
   filter: brightness(0.94);
 }
+
+/* ---------------- Hosted preview ---------------- */
+
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 24px;
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 10px max(var(--gutter), var(--safe-r)) 10px max(var(--gutter), var(--safe-l));
+  border-bottom: 1px solid var(--rule);
+}
+.demo-banner__text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+.demo-banner__text .label {
+  color: var(--accent);
+}
+.demo-banner__clear {
+  text-decoration: none;
+}
+.demo-banner__clear:hover {
+  color: var(--ink);
+}

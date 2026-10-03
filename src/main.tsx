@@ -18,7 +18,10 @@ import { initTheme } from './ui/theme';
 import { toast } from './state/ui';
 
 initTheme();
-void initStore();
+void initStore().then(() => {
+  // The hosted preview starts with clearly marked example entries.
+  if (import.meta.env.VITE_DEMO === '1') void import('./demo/samples').then((m) => m.seedExamples());
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -28,7 +31,7 @@ createRoot(document.getElementById('root')!).render(
 
 // The service worker precaches the whole app (including the OCR engine) so
 // Syble opens and works with no connection at all.
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if ('serviceWorker' in navigator && import.meta.env.PROD && import.meta.env.VITE_DEMO !== '1') {
   registerSW({
     immediate: true,
     onOfflineReady() {

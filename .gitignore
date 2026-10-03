@@ -6,3 +6,4 @@ public/tesseract
 test-results
 playwright-report
 .DS_Store
+dist-demo

@@ -143,7 +143,9 @@ export function LibraryView() {
           </p>
         </div>
         <div className="library__actions">
-          {ready ? (
+          {import.meta.env.VITE_DEMO === '1' ? (
+            <p className="label">Backups can’t be saved from this preview. They work in your own copy of Syble.</p>
+          ) : ready ? (
             <button type="button" className="button button--primary" onClick={onShare}>
               Save backup ({formatBytes(ready.size)})…
             </button>

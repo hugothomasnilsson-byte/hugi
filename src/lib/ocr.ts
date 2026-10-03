@@ -250,8 +250,34 @@ async function startEngine(generation: number): Promise<Tesseract.Worker> {
     errorHandler: (error: unknown) => activeJob?.fail(new Error(`Text recognition failed: ${String(error)}`)),
   };
 
+  // The hosted preview's server only serves web file types, so it ships the same
+  // language data under a .wasm name and hands it to the engine directly.
+  const langs: string | Tesseract.Lang[] =
+    import.meta.env.VITE_DEMO === '1'
+      ? await Promise.all(
+          languages.map(async (code) => {
+            const res = await fetch(asset(`lang/${code}.traineddata.gz.wasm`));
+            if (!res.ok) throw new Error(`Language data unavailable (${res.status})`);
+            const bytes = new Uint8Array(await res.arrayBuffer());
+            // tesseract.js sends this object twice: to load the data (reading `data` as
+            // bytes) and then to initialise, where it mistakenly reads `data` as the
+            // language code. Serve the bytes once, then the code.
+            let sent = false;
+            return {
+              code,
+              get data(): Uint8Array | string {
+                if (sent) return code;
+                sent = true;
+                return bytes;
+              },
+            };
+          }),
+        )
+      : languages.join('+');
+  if (generation !== engineGeneration) throw new Error('Text recognition was restarted');
+
   const { result: starting, worker: thread } = captureSpawnedWorker(() =>
-    tesseract.createWorker(languages.join('+'), tesseract.OEM.LSTM_ONLY, options),
+    tesseract.createWorker(langs, tesseract.OEM.LSTM_ONLY, options),
   );
   engineThread = thread;
   thread?.addEventListener('error', (event) => {

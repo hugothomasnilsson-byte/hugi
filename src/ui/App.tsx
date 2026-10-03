@@ -6,6 +6,7 @@ import { isImageFile } from '../lib/images';
 import { Wordmark } from './components/Wordmark';
 import { EntrySheet } from './components/EntrySheet';
 import { ConfirmHost } from './components/Confirm';
+import { DemoBanner } from '../demo/DemoBanner';
 import { SearchView, SEARCH_INPUT_ID } from './views/SearchView';
 import { EntryView } from './views/EntryView';
 import { AllView } from './views/AllView';
@@ -150,6 +151,7 @@ export function App() {
   return (
     <div className={`app app--${route.name}`}>
       <Header route={route} />
+      {import.meta.env.VITE_DEMO === '1' && <DemoBanner />}
       <main className="main" id="main" tabIndex={-1}>
         {error ? (
           <div className="page page--narrow">
