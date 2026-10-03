@@ -419,15 +419,12 @@ function ExtractedText({ meta, label, progress }: { meta: ImageMeta; label: stri
   const status = meta.ocrStatus;
   return (
     <div className="ocr">
-      <div className="ocr__head">
-        {label && <span className="label">{label}</span>}
-        {status === 'done' && !editing && (
-          <button type="button" className="label link" onClick={() => setEditing(true)}>
-            {meta.text ? 'Edit' : 'Add text'}
-          </button>
-        )}
-        {meta.textEdited && !editing && <span className="label faint">Edited by you</span>}
-      </div>
+      {(label || meta.textEdited) && (
+        <div className="ocr__head">
+          {label && <span className="label">{label}</span>}
+          {meta.textEdited && !editing && <span className="label faint">Corrected by you</span>}
+        </div>
+      )}
       {editing ? (
         <div className="ocr__edit">
           <textarea
@@ -467,9 +464,19 @@ function ExtractedText({ meta, label, progress }: { meta: ImageMeta; label: stri
           </button>
         </p>
       ) : meta.text ? (
-        <pre className="ocr__text">{meta.text}</pre>
+        <div className="ocr__body">
+          <pre className="ocr__text">{meta.text}</pre>
+          <button type="button" className="ocr__edit-btn label" onClick={() => setEditing(true)}>
+            Edit
+          </button>
+        </div>
       ) : (
-        <p className="ocr__status label faint">No text found in this image.</p>
+        <p className="ocr__status label faint">
+          No text found in this image.{' '}
+          <button type="button" className="link" onClick={() => setEditing(true)}>
+            Add text
+          </button>
+        </p>
       )}
     </div>
   );

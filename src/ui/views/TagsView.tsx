@@ -33,7 +33,7 @@ export function TagsView() {
   const max = Math.max(1, ...tagCounts.values());
 
   return (
-    <div className="page page--narrow">
+    <div className="page">
       <header className="page-head">
         <p className="label">{plural(tagCounts.size, 'hashtag')}</p>
         <h1 className="page-title">Tags</h1>

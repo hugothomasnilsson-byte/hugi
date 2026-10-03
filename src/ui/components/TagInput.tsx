@@ -11,7 +11,7 @@ interface Props {
 }
 
 /** Hashtag field: chips plus a text input that autocompletes from tags already used. */
-export function TagInput({ tags, onChange, library, placeholder = 'Add hashtags', autoFocus }: Props) {
+export function TagInput({ tags, onChange, library, placeholder = 'add a tag', autoFocus }: Props) {
   const [text, setText] = useState('');
   const [active, setActive] = useState(-1);
   const [open, setOpen] = useState(false);

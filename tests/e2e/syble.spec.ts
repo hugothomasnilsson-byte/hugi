@@ -168,7 +168,7 @@ test.describe('Syble', () => {
     const png = await makePng(page, ['Helvetica Neue']);
     await addEntry(page, { title: 'Specimen', image: png });
     await expect(page.locator('.ocr__text')).toBeVisible({ timeout: 90_000 });
-    await page.locator('.ocr').getByRole('button', { name: 'Edit' }).click();
+    await page.locator('.ocr').getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByRole('textbox', { name: 'Extracted text' }).fill('Akzidenz Grotesk specimen');
     await page.getByRole('button', { name: 'Save text' }).click();
     await expect(page.locator('.ocr__text')).toHaveText('Akzidenz Grotesk specimen');

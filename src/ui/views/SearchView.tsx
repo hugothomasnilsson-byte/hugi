@@ -177,7 +177,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
                     <Img id={cover.id} alt={e.title || 'Untitled'} ratio={clampRatio(cover.width / cover.height)} className="recent__img" />
                   ) : (
                     <div className="recent__img recent__img--text">
-                      <span>{(e.title || e.notes || 'Untitled').slice(0, 60)}</span>
+                      <span>{(e.notes || e.title || 'Untitled').slice(0, 160)}</span>
                     </div>
                   )}
                   <span className={`recent__title ${e.title ? '' : 'is-untitled'}`}>{e.title || 'Untitled'}</span>

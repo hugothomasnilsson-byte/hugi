@@ -74,13 +74,15 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
   }
 
   return (
-    <div ref={ref} className="masonry" style={{ gap: g }}>
-      {columns.map((col, i) => (
-        <div key={i} className="masonry__col" style={{ gap: g }}>
-          {col}
-        </div>
-      ))}
+    <>
+      <div ref={ref} className="masonry" style={{ gap: g }}>
+        {columns.map((col, i) => (
+          <div key={i} className="masonry__col" style={{ gap: g }}>
+            {col}
+          </div>
+        ))}
+      </div>
       <div ref={sentinel} className="masonry__sentinel" aria-hidden="true" />
-    </div>
+    </>
   );
 }

@@ -466,6 +466,7 @@ button.chip:hover {
   padding-left: var(--gutter);
   padding-right: var(--gutter);
   scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--gutter);
   scrollbar-width: none;
 }
 .recent__strip::-webkit-scrollbar {
@@ -498,6 +499,12 @@ button.chip:hover {
   font-size: 18px;
   line-height: 1.15;
   color: var(--ink-soft);
+}
+.recent__img--text span {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .recent__title {
   max-width: 180px;
@@ -1436,8 +1443,8 @@ dialog {
 
 .palette {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-  gap: 12px 10px;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 12px 8px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1462,6 +1469,9 @@ dialog {
   font-family: var(--serif);
   font-size: 15px;
   line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .palette__hex {
   font-size: 10px;
@@ -1491,9 +1501,25 @@ dialog {
 .ocr__head button:hover {
   color: var(--ink);
 }
+.ocr__body {
+  position: relative;
+}
+.ocr__edit-btn {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  padding: 4px 0;
+  opacity: 0.7;
+  transition: opacity 0.2s var(--ease), color 0.2s var(--ease);
+}
+.ocr__body:hover .ocr__edit-btn,
+.ocr__edit-btn:focus-visible {
+  opacity: 1;
+  color: var(--ink);
+}
 .ocr__text {
   margin: 0;
-  padding: 20px 22px;
+  padding: 20px 72px 20px 22px;
   background: var(--paper-sunk);
   border-radius: 3px;
   font-family: var(--mono);
@@ -1689,8 +1715,8 @@ dialog {
   margin: 0;
   padding: 0;
   list-style: none;
-  columns: 2 260px;
-  column-gap: 48px;
+  columns: 3 240px;
+  column-gap: 56px;
 }
 .tag-index__list li {
   break-inside: avoid;
@@ -1978,5 +2004,19 @@ kbd {
   }
   .page-head__row {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .meta__row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .section-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .entry__actions {
+    gap: 18px;
   }
 }
