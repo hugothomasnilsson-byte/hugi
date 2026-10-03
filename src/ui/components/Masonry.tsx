@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { historyKey } from '../../state/router';
 
 export interface MasonryItem {
   key: string;
@@ -20,6 +21,9 @@ function columnsFor(width: number) {
 
 const PAGE = 40;
 
+/** How far each history entry's grid had paged, so Back can return to the same spot. */
+const pagedTo = new Map<string, number>();
+
 /**
  * Left-to-right masonry: items are placed into the currently shortest column
  * using their known aspect ratios, so reading order stays newest-first and
@@ -29,7 +33,12 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
   const ref = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [limit, setLimit] = useState(PAGE);
+  const pageKey = useRef(historyKey());
+  const [limit, setLimit] = useState(() => pagedTo.get(pageKey.current) ?? PAGE);
+
+  useEffect(() => {
+    pagedTo.set(pageKey.current, limit);
+  }, [limit]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -40,9 +49,14 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     return () => ro.disconnect();
   }, []);
 
-  // Reset paging when the result set changes identity.
-  const firstKey = items[0]?.key;
-  useEffect(() => setLimit(PAGE), [firstKey, items.length]);
+  // Reset paging when the result set changes (but not on mount, which may be a Back).
+  const signature = `${items[0]?.key}|${items.length}`;
+  const lastSignature = useRef(signature);
+  useEffect(() => {
+    if (lastSignature.current === signature) return;
+    lastSignature.current = signature;
+    setLimit(PAGE);
+  }, [signature]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -55,9 +69,20 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     return () => io.disconnect();
   }, [limit, items.length]);
 
-  const cols = width ? columnsFor(width) : 1;
+  // Until the width is measured (synchronously, before paint) render no cells, so a
+  // provisional one-column layout never affects scroll position.
+  if (!width) {
+    return (
+      <>
+        <div ref={ref} className="masonry" />
+        <div ref={sentinel} className="masonry__sentinel" aria-hidden="true" />
+      </>
+    );
+  }
+
+  const cols = columnsFor(width);
   const g = gap ?? (cols === 1 ? 40 : width > 1200 ? 40 : 28);
-  const colW = width ? (width - g * (cols - 1)) / cols : 300;
+  const colW = (width - g * (cols - 1)) / cols;
   const heights = new Array(cols).fill(0);
   const columns: ReactNode[][] = Array.from({ length: cols }, () => []);
 

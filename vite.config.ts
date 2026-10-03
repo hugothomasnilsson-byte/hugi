@@ -31,6 +31,16 @@ export default defineConfig({
         // Precache everything, including the OCR engine and language data,
         // so the installed app never needs the network.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm,gz,webmanifest}'],
+        // Optional OCR languages are not part of the install; each is cached from
+        // this same origin the first time it is turned on in Library.
+        globIgnores: ['**/tesseract/lang/!(eng).traineddata.gz'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.includes('/tesseract/lang/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'syble-ocr-languages' },
+          },
+        ],
         maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,

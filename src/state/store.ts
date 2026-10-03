@@ -160,18 +160,24 @@ async function applyToSavedImage(id: ID, patch: Partial<Pick<ImageMeta, 'palette
   await db.saveImageMeta(next);
 }
 
+/** Images with an OCR job queued or running, so the same image is never read twice at once. */
+const queued = new Set<ID>();
+
 /**
  * Extracts the palette and reads the text of an image. The palette is taken
  * from the thumbnail when available, so phones don't decode the full image twice.
  */
 export function analyzeImage(id: ID, blob: Blob, thumb?: Blob) {
   cancelled.delete(id);
+  if (queued.has(id)) return; // its pending job will deliver the result
+  queued.add(id);
   setAnalysis(id, { status: 'pending', progress: 0 });
 
   void (async () => {
     try {
       const data = await loadImageData(thumb ?? blob, 200);
       const palette = extractPalette(data, 5);
+      if (cancelled.has(id)) return;
       setAnalysis(id, { palette });
       await applyToSavedImage(id, { palette });
     } catch (err) {
@@ -180,18 +186,53 @@ export function analyzeImage(id: ID, blob: Blob, thumb?: Blob) {
   })();
 
   ocrChain = ocrChain.then(async () => {
-    if (cancelled.has(id)) return;
-    setAnalysis(id, { status: 'running', progress: 0 });
-    await applyToSavedImage(id, { ocrStatus: 'running' });
     try {
-      const text = await recognizeText(blob, (p) => setAnalysis(id, { progress: p }));
-      setAnalysis(id, { text, status: 'done', progress: 1 });
-      await applyToSavedImage(id, { text, ocrStatus: 'done' });
-    } catch (err) {
-      console.warn('OCR failed', err);
-      setAnalysis(id, { status: 'error' });
-      await applyToSavedImage(id, { ocrStatus: 'error' });
+      if (cancelled.has(id)) return;
+      setAnalysis(id, { status: 'running', progress: 0 });
+      await applyToSavedImage(id, { ocrStatus: 'running' });
+      try {
+        const text = await recognizeText(blob, (p) => {
+          if (!cancelled.has(id)) setAnalysis(id, { progress: p });
+        });
+        if (cancelled.has(id)) return;
+        setAnalysis(id, { text, status: 'done', progress: 1 });
+        await applyToSavedImage(id, { text, ocrStatus: 'done' });
+      } catch (err) {
+        console.warn('OCR failed', err);
+        if (cancelled.has(id)) return;
+        setAnalysis(id, { status: 'error' });
+        await applyToSavedImage(id, { ocrStatus: 'error' });
+      }
+    } finally {
+      queued.delete(id);
     }
+  });
+}
+
+/**
+ * Brings freshly written image metas up to date with analysis that finished
+ * while they were being saved (or while the entry was deleted, before an undo).
+ */
+function reconcileWithAnalysis(metas: ImageMeta[], blobsFor?: (id: ID) => ImageBlobs | undefined): ImageMeta[] {
+  return metas.map((meta) => {
+    const a = state.analysis.get(meta.id);
+    const patch: Partial<ImageMeta> = {};
+    if (a?.palette?.length && !meta.palette.length) patch.palette = a.palette;
+    if (a && (a.status === 'done' || a.status === 'error')) {
+      if (meta.ocrStatus !== a.status || (a.status === 'done' && !meta.textEdited && meta.text !== (a.text ?? ''))) {
+        patch.ocrStatus = a.status;
+        if (!meta.textEdited) patch.text = a.text ?? '';
+      }
+    } else if (a?.status === 'running' && meta.ocrStatus === 'pending') {
+      patch.ocrStatus = 'running';
+    } else if (!a && blobsFor && (meta.ocrStatus === 'pending' || meta.ocrStatus === 'running')) {
+      const b = blobsFor(meta.id);
+      if (b) analyzeImage(meta.id, b.full, b.thumb);
+    }
+    if (Object.keys(patch).length === 0) return meta;
+    const next = { ...meta, ...patch };
+    void db.saveImageMeta(next);
+    return next;
   });
 }
 
@@ -204,6 +245,16 @@ export function forgetAnalysis(ids: ID[]) {
     next.delete(id);
   }
   setState({ analysis: next }, false);
+}
+
+/** Re-reads the text of every image the user hasn't corrected by hand (after a language change). */
+export async function rereadAllImages(): Promise<number> {
+  const targets = [...state.images.values()].filter((m) => !m.textEdited);
+  for (const meta of targets) {
+    const blobs = await db.getImageBlobs(meta.id);
+    if (blobs) analyzeImage(meta.id, blobs.full, blobs.thumb);
+  }
+  return targets.length;
 }
 
 export async function retryOcr(id: ID) {
@@ -243,7 +294,8 @@ function buildMeta(id: ID, entryId: ID, prepared: PreparedImage, now: number): I
     size: prepared.full.size,
     text: a?.text ?? '',
     textEdited: false,
-    ocrStatus: status === 'done' || status === 'error' ? status : 'pending',
+    // 'running' survives a reload: start-up re-queues both 'pending' and 'running'.
+    ocrStatus: status,
     palette: a?.palette ?? [],
     createdAt: now,
   };
@@ -287,11 +339,16 @@ export async function saveDraft(draft: EntryDraft, existingId?: ID): Promise<ID>
 
   await db.saveEntryWithImages(entry, newImages, removed);
 
+  // Runs synchronously up to setState, so no analysis result can slip in between.
+  const fresh = reconcileWithAnalysis(newImages.map((n) => n.meta));
   const entries = new Map(state.entries);
   entries.set(id, entry);
   const images = new Map(state.images);
-  for (const { meta } of newImages) images.set(meta.id, meta);
-  for (const rid of removed) images.delete(rid);
+  for (const meta of fresh) images.set(meta.id, meta);
+  for (const rid of removed) {
+    images.delete(rid);
+    cancelled.add(rid);
+  }
   setState({ entries, images });
   forgetImageUrls(removed);
 
@@ -315,6 +372,12 @@ export async function addTag(id: ID, raw: string) {
   const prev = state.entries.get(id);
   if (!tag || !prev || prev.tags.includes(tag)) return;
   await updateEntry(id, { tags: [...prev.tags, tag] });
+}
+
+export async function removeTag(id: ID, tag: string) {
+  const prev = state.entries.get(id);
+  if (!prev || !prev.tags.includes(tag)) return;
+  await updateEntry(id, { tags: prev.tags.filter((t) => t !== tag) });
 }
 
 export async function dismissSuggestion(id: ID, tag: string) {
@@ -346,7 +409,10 @@ export async function deleteEntry(id: ID): Promise<() => Promise<void>> {
   const entries = new Map(state.entries);
   entries.delete(id);
   const images = new Map(state.images);
-  for (const m of metas) images.delete(m.id);
+  for (const m of metas) {
+    images.delete(m.id);
+    cancelled.add(m.id);
+  }
   setState({ entries, images });
   forgetImageUrls(metas.map((m) => m.id));
 
@@ -355,17 +421,30 @@ export async function deleteEntry(id: ID): Promise<() => Promise<void>> {
       .map((meta) => ({ meta, blobs: blobs.find((b) => b.id === meta.id) }))
       .filter((p): p is { meta: ImageMeta; blobs: ImageBlobs } => !!p.blobs);
     await db.saveEntryWithImages(entry, pairs);
+    // Let an in-flight job deliver its result again, and resume any unfinished reading.
+    for (const p of pairs) cancelled.delete(p.meta.id);
+    const restored = reconcileWithAnalysis(
+      pairs.map((p) => p.meta),
+      (iid) => pairs.find((p) => p.meta.id === iid)?.blobs,
+    );
     const e2 = new Map(state.entries);
     e2.set(entry.id, entry);
     const i2 = new Map(state.images);
-    for (const p of pairs) i2.set(p.meta.id, p.meta);
+    for (const meta of restored) i2.set(meta.id, meta);
     setState({ entries: e2, images: i2 });
+    for (const meta of restored) {
+      const a = state.analysis.get(meta.id);
+      const p = pairs.find((x) => x.meta.id === meta.id)!;
+      if (a?.status === 'pending' && !queued.has(meta.id)) analyzeImage(meta.id, p.blobs.full, p.blobs.thumb);
+    }
   };
 }
 
 /** Reloads everything from IndexedDB (after an import). */
 export async function reloadStore() {
   const { entries, images } = await db.loadAll();
+  const kept = new Set(images.map((m) => m.id));
+  for (const id of state.images.keys()) if (!kept.has(id)) cancelled.add(id);
   forgetImageUrls([...state.images.keys()]);
   setState({
     entries: new Map(entries.map((e) => [e.id, e])),

@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { Entry, ImageMeta, Swatch } from '../../types';
 import {
+  type Analysis,
   addTag,
+  removeTag,
   deleteEntry,
   dismissSuggestion,
   entryImages,
   entryPalette,
   retryOcr,
+  updateEntry,
   updateImageText,
   useDerived,
   useStore,
@@ -14,6 +17,7 @@ import {
 import { goBack, href, navigate } from '../../state/router';
 import { openSheet, toast } from '../../state/ui';
 import { suggestTags } from '../../lib/suggest';
+import { parseTagList } from '../../lib/tags';
 import { isLight } from '../../lib/colour';
 import { Img } from '../components/Img';
 import { Lightbox } from '../components/Lightbox';
@@ -49,7 +53,9 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
   const analysis = useStore((s) => s.analysis);
   const allImages = useStore((s) => s.images);
   const palette = useMemo(() => entryPalette(entry, allImages), [entry, allImages]);
-  const cover = images[Math.min(current, images.length - 1)];
+  // Images may have been removed in Edit while a later plate was selected.
+  const idx = images.length ? Math.min(current, images.length - 1) : 0;
+  const cover = images[idx];
   const title = entry.title || 'Untitled';
 
   useEffect(() => {
@@ -138,7 +144,7 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
           <button
             type="button"
             className="entry__hero-btn"
-            onClick={() => setViewer(current)}
+            onClick={() => setViewer(idx)}
             aria-label="View full screen"
             style={{ '--r': cover.width / cover.height } as CSSProperties}
           >
@@ -155,17 +161,17 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
           {images.length > 1 && (
             <figcaption className="entry__plates">
               <span className="mono">
-                {String(current + 1).padStart(2, '0')} / {String(images.length).padStart(2, '0')}
+                {String(idx + 1).padStart(2, '0')} / {String(images.length).padStart(2, '0')}
               </span>
               <ol className="entry__thumbs">
                 {images.map((m, i) => (
                   <li key={m.id}>
                     <button
                       type="button"
-                      className={`entry__thumb ${i === current ? 'is-on' : ''}`}
+                      className={`entry__thumb ${i === idx ? 'is-on' : ''}`}
                       onClick={() => setCurrent(i)}
                       aria-label={`Show image ${i + 1}`}
-                      aria-current={i === current}
+                      aria-current={i === idx}
                     >
                       <Img id={m.id} alt="" ratio={m.width / m.height} />
                     </button>
@@ -284,12 +290,7 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
             <span className="label faint">Read on this device · searchable</span>
           </div>
           {images.map((m, i) => (
-            <ExtractedText
-              key={m.id}
-              meta={m}
-              label={images.length > 1 ? `Plate ${i + 1}` : null}
-              progress={analysis.get(m.id)?.progress ?? 0}
-            />
+            <ExtractedText key={m.id} meta={m} label={images.length > 1 ? `Plate ${i + 1}` : null} live={analysis.get(m.id)} />
           ))}
         </section>
       )}
@@ -326,21 +327,39 @@ function TagEditor({ entry, library }: { entry: Entry; library: ReadonlyMap<stri
   const [value, setValue] = useState('');
   const options = useMemo(() => {
     const q = value.replace(/^#/, '').toLowerCase();
-    if (!q) return [];
-    return [...library.keys()].filter((t) => t.startsWith(q) && !entry.tags.includes(t)).slice(0, 5);
+    const all = [...library.entries()].filter(([t]) => !entry.tags.includes(t));
+    return (q ? all.filter(([t]) => t.startsWith(q)) : all)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([t]) => t);
   }, [value, library, entry.tags]);
 
-  const commit = (t: string) => {
-    if (t.trim()) void addTag(entry.id, t);
+  const commit = (raw: string) => {
+    // "#film #grain" or "colour, light" adds each tag, as in the edit sheet.
+    const add = parseTagList(raw).filter((t) => !entry.tags.includes(t));
+    if (add.length) void updateEntry(entry.id, { tags: [...entry.tags, ...add] });
     setValue('');
   };
 
   return (
     <div className="tag-editor">
       {entry.tags.map((t) => (
-        <a key={t} href={href.tag(t)} className="chip">
-          #{t}
-        </a>
+        <span key={t} className="tag-editor__chip">
+          <a href={href.tag(t)} className="chip">
+            #{t}
+          </a>
+          <button
+            type="button"
+            className="chip__x tag-editor__remove"
+            aria-label={`Remove #${t}`}
+            onClick={() => {
+              void removeTag(entry.id, t);
+              toast(`Removed #${t}`, { label: 'Undo', run: () => void addTag(entry.id, t) });
+            }}
+          >
+            ×
+          </button>
+        </span>
       ))}
       {adding ? (
         <span className="tag-editor__add">
@@ -408,7 +427,7 @@ function Palette({ swatches }: { swatches: Swatch[] }) {
   );
 }
 
-function ExtractedText({ meta, label, progress }: { meta: ImageMeta; label: string | null; progress: number }) {
+function ExtractedText({ meta, label, live }: { meta: ImageMeta; label: string | null; live: Analysis | undefined }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(meta.text);
 
@@ -416,7 +435,9 @@ function ExtractedText({ meta, label, progress }: { meta: ImageMeta; label: stri
     if (!editing) setDraft(meta.text);
   }, [meta.text, editing]);
 
-  const status = meta.ocrStatus;
+  // Live analysis wins while a job is queued or running (e.g. straight after "Try again").
+  const status = live && (live.status === 'running' || live.status === 'pending') ? live.status : meta.ocrStatus;
+  const progress = live?.progress ?? 0;
   return (
     <div className="ocr">
       {(label || meta.textEdited) && (
@@ -461,6 +482,10 @@ function ExtractedText({ meta, label, progress }: { meta: ImageMeta; label: stri
           Couldn’t read this image.{' '}
           <button type="button" className="link" onClick={() => void retryOcr(meta.id)}>
             Try again
+          </button>
+          {' · '}
+          <button type="button" className="link" onClick={() => setEditing(true)}>
+            Add text
           </button>
         </p>
       ) : meta.text ? (

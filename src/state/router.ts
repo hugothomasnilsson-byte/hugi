@@ -8,10 +8,18 @@ export type Route =
   | { name: 'all' }
   | { name: 'library' };
 
+function safeDecode(s: string) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function parseHash(hash: string): Route {
   const raw = hash.replace(/^#/, '');
   const [path, qs = ''] = raw.split('?');
-  const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
+  const parts = path.split('/').filter(Boolean).map(safeDecode);
   switch (parts[0]) {
     case 'entry':
       if (parts[1]) return { name: 'entry', id: parts[1] };

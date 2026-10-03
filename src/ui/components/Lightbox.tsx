@@ -11,7 +11,7 @@ interface Props {
 
 /** Full-screen viewer: arrows / swipe to move, click to zoom to actual size. */
 export function Lightbox({ images, start, title, onClose }: Props) {
-  const [index, setIndex] = useState(start);
+  const [index, setIndex] = useState(() => Math.max(0, Math.min(start, images.length - 1)));
   const [zoomed, setZoomed] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
@@ -23,12 +23,18 @@ export function Lightbox({ images, start, title, onClose }: Props) {
     setIndex((i) => (i + d + count) % count);
   };
 
+  const hasImage = !!img;
   useEffect(() => {
     const dlg = ref.current;
-    if (dlg && !dlg.open) dlg.showModal();
+    if (!dlg) return;
+    if (!dlg.open) dlg.showModal();
     document.documentElement.classList.add('is-locked');
     return () => document.documentElement.classList.remove('is-locked');
-  }, []);
+  }, [hasImage]);
+
+  useEffect(() => {
+    if (count === 0) onClose(0);
+  }, [count, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -11,7 +11,9 @@ const pkgDir = (name) => dirname(require.resolve(`${name}/package.json`));
 
 const tesseract = pkgDir('tesseract.js');
 const core = pkgDir('tesseract.js-core');
-const lang = pkgDir('@tesseract.js-data/eng');
+// English is always bundled; the others are optional and fetched from the app's
+// own origin only when the user turns them on (see src/lib/ocrLanguages.ts).
+const LANGS = ['eng', 'swe', 'deu', 'fra', 'spa', 'ita', 'nld', 'dan', 'nor', 'por'];
 
 mkdirSync(join(out, 'core'), { recursive: true });
 mkdirSync(join(out, 'lang'), { recursive: true });
@@ -25,7 +27,10 @@ for (const f of [
 ]) {
   cpSync(join(core, f), join(out, 'core', f));
 }
-cpSync(join(lang, '4.0.0_best_int', 'eng.traineddata.gz'), join(out, 'lang', 'eng.traineddata.gz'));
+for (const code of LANGS) {
+  const dir = pkgDir(`@tesseract.js-data/${code}`);
+  cpSync(join(dir, '4.0.0_best_int', `${code}.traineddata.gz`), join(out, 'lang', `${code}.traineddata.gz`));
+}
 
 if (!existsSync(join(out, 'lang', 'eng.traineddata.gz'))) process.exit(1);
 console.log('OCR assets copied to public/tesseract');

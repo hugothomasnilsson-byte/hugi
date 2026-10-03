@@ -3,7 +3,7 @@ import { href } from '../../state/router';
 import { highlight, tagMatches, type ParsedQuery } from '../../lib/search';
 import { Img } from './Img';
 import { Segments } from './Highlight';
-import { formatDate } from '../format';
+import { entryText, formatDate } from '../format';
 
 interface Props {
   entry: Entry;
@@ -26,7 +26,11 @@ const FIELD_LABEL: Record<SearchField, string> = {
 export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
   const title = entry.title || 'Untitled';
   const ratio = cover ? cover.width / Math.max(1, cover.height) : null;
-  const shownTags = entry.tags.slice(0, 4);
+  // Matched tags first, so the reason a result appeared is never hidden behind "+N".
+  const ordered = query
+    ? [...entry.tags].sort((a, b) => Number(tagMatches(b, query)) - Number(tagMatches(a, query)))
+    : entry.tags;
+  const shownTags = ordered.slice(0, 4);
   const matchedNotTitle = result?.fields.filter((f) => f !== 'title') ?? [];
 
   return (
@@ -38,7 +42,7 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
         </div>
       ) : (
         <div className="card__visual card__visual--text">
-          <p className="card__excerpt">{entry.notes.slice(0, 220) || title}</p>
+          <p className="card__excerpt">{entryText(entry).slice(0, 220)}</p>
         </div>
       )}
       <div className="card__body">

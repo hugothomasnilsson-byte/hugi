@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { reloadStore, useDerived, useStore } from '../../state/store';
+import { reloadStore, rereadAllImages, useDerived, useStore } from '../../state/store';
+import { OCR_LANGUAGES, getOcrLanguages, ocrLanguageUrl, saveOcrLanguages } from '../../lib/ocrLanguages';
+import { setOcrLanguages } from '../../lib/ocr';
 import { toast } from '../../state/ui';
 import { exportLibrary, importLibrary, backupFileName, BackupError, type ImportMode } from '../../lib/backup';
 import { clearLibrary } from '../../lib/db';
-import { formatBytes, plural } from '../format';
+import { MOD, formatBytes, plural } from '../format';
 import { useTheme, type ThemePref } from '../theme';
 
 export function LibraryView() {
@@ -98,7 +100,7 @@ export function LibraryView() {
         <Stat value={byNewest.length} label={byNewest.length === 1 ? 'Entry' : 'Entries'} />
         <Stat value={images.size} label={images.size === 1 ? 'Image' : 'Images'} />
         <Stat value={tagCounts.size} label={tagCounts.size === 1 ? 'Hashtag' : 'Hashtags'} />
-        <Stat value={formatBytes(usage?.used ?? imageBytes)} label="Storage used" />
+        <Stat value={formatBytes(imageBytes)} label="Library size" />
       </section>
 
       <section className="library__section">
@@ -156,6 +158,8 @@ export function LibraryView() {
         </div>
       )}
 
+      <ReadingLanguages />
+
       <section className="library__section">
         <div className="library__text">
           <h2 className="library__h">Appearance</h2>
@@ -177,7 +181,10 @@ export function LibraryView() {
           <p>
             Syble never connects to the internet. Text in your images is read on this device, and nothing is uploaded,
             synced or tracked. Your library lives in this browser’s storage
-            {usage?.quota ? ` (${formatBytes(usage.quota)} available)` : ''}.
+            {usage?.quota
+              ? ` (${formatBytes(usage.used)} used including the app and its offline text engine, ${formatBytes(usage.quota)} available)`
+              : ''}
+            .
           </p>
           <p className="label">
             {persisted === true
@@ -199,9 +206,9 @@ export function LibraryView() {
           <h2 className="library__h">Shortcuts</h2>
           <dl className="shortcuts">
             <dt><kbd>/</kbd></dt><dd>Search</dd>
-            <dt><kbd>⌘</kbd> <kbd>V</kbd></dt><dd>Add from clipboard</dd>
+            <dt><kbd>{MOD}</kbd> <kbd>V</kbd></dt><dd>Add from clipboard</dd>
             <dt><kbd>N</kbd></dt><dd>New entry</dd>
-            <dt><kbd>⌘</kbd> <kbd>↵</kbd></dt><dd>Save entry</dd>
+            <dt><kbd>{MOD}</kbd> <kbd>↵</kbd></dt><dd>Save entry</dd>
             <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next image</dd>
             <dt><kbd>Esc</kbd></dt><dd>Close · clear search</dd>
           </dl>
@@ -214,7 +221,7 @@ export function LibraryView() {
           <p>Remove every entry and image from this device. Export a backup first.</p>
         </div>
         <div className="library__actions">
-          <button type="button" className="button button--danger" onClick={onErase} disabled={byNewest.length === 0}>
+          <button type="button" className="button button--danger" onClick={onErase} disabled={!!busy || byNewest.length === 0}>
             Erase library…
           </button>
         </div>
@@ -222,6 +229,76 @@ export function LibraryView() {
 
       <p className="library__colophon label">Syble · a personal almanac · works offline</p>
     </div>
+  );
+}
+
+/** Which languages the on-device text reader recognises. */
+function ReadingLanguages() {
+  const [langs, setLangs] = useState<string[]>(getOcrLanguages);
+  const [loading, setLoading] = useState<string | null>(null);
+  const imageCount = useStore((s) => s.images.size);
+
+  const toggle = async (code: string) => {
+    if (code === 'eng' || loading) return;
+    let next: string[];
+    if (langs.includes(code)) next = langs.filter((c) => c !== code);
+    else {
+      setLoading(code);
+      try {
+        // Served by Syble itself; the offline cache keeps it from now on.
+        const res = await fetch(ocrLanguageUrl(code));
+        if (!res.ok) throw new Error(String(res.status));
+        await res.arrayBuffer();
+      } catch {
+        toast('That language isn’t available offline yet. Connect once to add it.');
+        return;
+      } finally {
+        setLoading(null);
+      }
+      next = [...langs, code];
+    }
+    setLangs(next);
+    saveOcrLanguages(next);
+    setOcrLanguages(next);
+  };
+
+  const reread = async () => {
+    const n = await rereadAllImages();
+    toast(n ? `Re-reading ${plural(n, 'image')} on this device…` : 'Every image has hand-corrected text.');
+  };
+
+  return (
+    <section className="library__section">
+      <div className="library__text">
+        <h2 className="library__h">Reading text</h2>
+        <p>
+          Text in your images is read on this device. Add the languages you collect in, so accents and special letters
+          come out right.
+        </p>
+        <div className="chip-row" role="group" aria-label="Recognition languages">
+          {OCR_LANGUAGES.map((l) => {
+            const on = langs.includes(l.code);
+            return (
+              <button
+                key={l.code}
+                type="button"
+                className={`chip ${on ? 'is-on' : ''}`}
+                aria-pressed={on}
+                disabled={l.code === 'eng'}
+                onClick={() => void toggle(l.code)}
+              >
+                {loading === l.code ? 'Adding…' : l.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="library__actions">
+        <button type="button" className="button" onClick={() => void reread()} disabled={imageCount === 0}>
+          Re-read all images
+        </button>
+      </div>
+    </section>
   );
 }
 

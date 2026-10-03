@@ -1,12 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useDerived, useStore } from '../../state/store';
-import { href, replaceRoute } from '../../state/router';
+import { href, navigate, replaceRoute } from '../../state/router';
 import { openSheet } from '../../state/ui';
 import { isEmptyQuery, knownTagsOf, parseQuery, search } from '../../lib/search';
 import { Masonry } from '../components/Masonry';
 import { EntryCard, cardExtra, clampRatio } from '../components/EntryCard';
 import { Img } from '../components/Img';
-import { plural } from '../format';
+import { entryText, plural } from '../format';
 
 export const SEARCH_INPUT_ID = 'syble-search';
 
@@ -54,11 +54,14 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
     replaceRoute(href.home(value));
   };
 
+  // A chip tap is a deliberate step (Back undoes it); typing only replaces the URL.
   const toggleTag = (tag: string) => {
     const tokens = q.split(/\s+/).filter(Boolean);
     const has = tokens.some((t) => t.toLowerCase() === `#${tag}`);
     const next = has ? tokens.filter((t) => t.toLowerCase() !== `#${tag}`) : [...tokens, `#${tag}`];
-    update(next.length ? `${next.join(' ')} ` : '');
+    const value = next.length ? `${next.join(' ')} ` : '';
+    setQ(value);
+    navigate(href.home(value));
     inputRef.current?.focus({ preventScroll: true });
   };
 
@@ -127,18 +130,21 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
                 <span className="chip__count">{tagCounts.get(t)}</span>
               </button>
             ))}
-            <span className="search__hint label">Tab to complete</span>
+            <span className="search__hint label only-fine">Tab to complete</span>
           </div>
         )}
 
-        {!active && !empty && topTags.length > 0 && (
+        {!empty && topTags.length > 0 && completions.length === 0 && (
           <nav className="search__tags" aria-label="Most-used hashtags">
-            {topTags.map(([t, n]) => (
-              <button key={t} type="button" className="chip" onClick={() => toggleTag(t)}>
-                #{t}
-                <span className="chip__count">{n}</span>
-              </button>
-            ))}
+            {topTags.map(([t, n]) => {
+              const on = parsed.tags.includes(t);
+              return (
+                <button key={t} type="button" className={`chip ${on ? 'is-on' : ''}`} aria-pressed={on} onClick={() => toggleTag(t)}>
+                  #{t}
+                  <span className="chip__count">{n}</span>
+                </button>
+              );
+            })}
             <a className="chip chip--quiet" href={href.tags()}>
               All tags →
             </a>
@@ -150,7 +156,11 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
             <p className="search__welcome-lede">
               A private almanac for the things that move you — screenshots, images, passages, colour.
             </p>
-            <p className="search__welcome-how label">Paste · drop · or add an image to begin. Everything stays on this device.</p>
+            <p className="search__welcome-how label">
+              <span className="only-fine">Paste · drop · or add an image to begin. </span>
+              <span className="only-coarse">Add an image from your photos to begin. </span>
+              Everything stays on this device.
+            </p>
             <button type="button" className="button button--primary" onClick={() => openSheet()}>
               Add your first source
             </button>
@@ -177,7 +187,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
                     <Img id={cover.id} alt={e.title || 'Untitled'} ratio={clampRatio(cover.width / cover.height)} className="recent__img" />
                   ) : (
                     <div className="recent__img recent__img--text">
-                      <span>{(e.notes || e.title || 'Untitled').slice(0, 160)}</span>
+                      <span>{entryText(e).slice(0, 160)}</span>
                     </div>
                   )}
                   <span className={`recent__title ${e.title ? '' : 'is-untitled'}`}>{e.title || 'Untitled'}</span>

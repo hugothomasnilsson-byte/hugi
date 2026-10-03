@@ -8,6 +8,7 @@
  *
  * One worker is created on first use and reused. Jobs run one at a time, in call order.
  */
+import { getOcrLanguages } from './ocrLanguages';
 import type Tesseract from 'tesseract.js';
 import { loadImageDataSized } from './images';
 
@@ -133,6 +134,11 @@ async function runJob(blob: Blob, onProgress?: OcrProgress): Promise<string> {
   } finally {
     clearTimeout(watchdog);
     if (activeJob === job) activeJob = null;
+    // A language change requested mid-job takes effect now that the job is done.
+    if (restartAfterJob && !activeJob) {
+      restartAfterJob = false;
+      resetEngine();
+    }
   }
 }
 
@@ -179,6 +185,29 @@ function onEngineLog(message: Tesseract.LoggerMessage) {
 type TesseractModule = typeof Tesseract;
 
 let engine: Promise<Tesseract.Worker> | null = null;
+/** Recognition languages; English is always included. */
+let languages: string[] = readLanguages();
+
+function readLanguages(): string[] {
+  try {
+    return getOcrLanguages();
+  } catch {
+    return ['eng'];
+  }
+}
+
+/**
+ * Switches the recognition languages. The engine restarts with the new models
+ * once the current job (if any) has finished.
+ */
+export function setOcrLanguages(codes: readonly string[]) {
+  const next = ['eng', ...codes.filter((c) => c !== 'eng')];
+  if (next.join('+') === languages.join('+')) return;
+  languages = next;
+  if (!activeJob) resetEngine();
+  else restartAfterJob = true;
+}
+let restartAfterJob = false;
 let engineReady = false;
 /** The worker thread, held from the moment it is spawned so even a stalled start-up can be killed. */
 let engineThread: Worker | undefined;
@@ -222,7 +251,7 @@ async function startEngine(generation: number): Promise<Tesseract.Worker> {
   };
 
   const { result: starting, worker: thread } = captureSpawnedWorker(() =>
-    tesseract.createWorker('eng', tesseract.OEM.LSTM_ONLY, options),
+    tesseract.createWorker(languages.join('+'), tesseract.OEM.LSTM_ONLY, options),
   );
   engineThread = thread;
   thread?.addEventListener('error', (event) => {

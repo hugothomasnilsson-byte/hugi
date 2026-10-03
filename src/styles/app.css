@@ -379,6 +379,23 @@ button.chip:hover {
   color: var(--faint);
   font-size: 11px;
 }
+.chip.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.chip.is-on .chip__count {
+  color: inherit;
+  opacity: 0.7;
+}
+.chip.is-on:hover {
+  background: var(--ink-soft);
+  color: var(--paper);
+}
+.search.is-active .search__tags {
+  margin-top: 14px;
+  animation: none;
+}
 .chip--quiet {
   border-style: dashed;
   color: var(--muted);
@@ -1429,6 +1446,34 @@ dialog {
   flex-wrap: wrap;
   gap: 6px;
 }
+.tag-editor__chip {
+  position: relative;
+  display: inline-flex;
+}
+.tag-editor__remove {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--rule);
+  font-size: 13px;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.tag-editor__chip:hover .tag-editor__remove,
+.tag-editor__remove:focus-visible {
+  opacity: 1;
+  transform: none;
+}
+@media not all and (hover: hover) {
+  .tag-editor__remove {
+    opacity: 1;
+    transform: none;
+  }
+}
 .tag-editor__input {
   height: 30px;
   width: 140px;
@@ -1948,9 +1993,14 @@ kbd {
   }
 }
 
-/* Hints that only make sense with a keyboard and mouse. */
+/* Hints that only make sense with a keyboard and mouse, or only on touch. */
 @media not all and (hover: hover) and (pointer: fine) {
   .only-fine {
+    display: none !important;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .only-coarse {
     display: none !important;
   }
 }

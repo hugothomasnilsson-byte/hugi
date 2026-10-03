@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useRoute, href, navigate, historyKey, wasTraversal, type Route } from '../state/router';
 import { useStore } from '../state/store';
-import { dismissToast, isSheetOpen, openSheet, useUi } from '../state/ui';
+import { dismissToast, isSheetOpen, openSheet, toast, useUi } from '../state/ui';
 import { isImageFile } from '../lib/images';
 import { Wordmark } from './components/Wordmark';
 import { EntrySheet } from './components/EntrySheet';
@@ -80,10 +80,17 @@ export function App() {
     const onPaste = (e: ClipboardEvent) => {
       const data = e.clipboardData;
       if (!data) return;
-      const files = [...data.files].filter(isImageFile);
+      // Rich clipboards (Word, Keynote…) carry text and an image; in a text field the text wins.
+      if (isTyping(e.target) && data.getData('text/plain').trim()) return;
+      const all = [...data.files];
+      const files = all.filter(isImageFile);
       if (files.length) {
         e.preventDefault();
         openSheet({ files });
+        return;
+      }
+      if (all.length && !isSheetOpen()) {
+        toast('Only images can be added to Syble.');
         return;
       }
       if (isTyping(e.target) || isSheetOpen() || document.querySelector('dialog[open]')) return;
@@ -119,8 +126,10 @@ export function App() {
       e.preventDefault();
       depth = 0;
       setDropping(false);
-      const files = [...(e.dataTransfer?.files ?? [])].filter(isImageFile);
+      const all = [...(e.dataTransfer?.files ?? [])];
+      const files = all.filter(isImageFile);
       if (files.length) openSheet({ files });
+      if (files.length < all.length) toast(`${all.length - files.length} file(s) skipped — only images can be added.`);
     };
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);
@@ -148,7 +157,9 @@ export function App() {
             </div>
           </div>
         ) : (
-          <View route={route} />
+          <ErrorBoundary key={location.hash}>
+            <View route={route} />
+          </ErrorBoundary>
         )}
       </main>
       <Dock route={route} />
@@ -211,16 +222,52 @@ function useScrollMemory(route: Route) {
       window.scrollTo(0, 0);
       return;
     }
-    // Content (and lazily paged grids) may need a few frames to reach the old height.
-    let tries = 0;
+    // Content (and lazily paged grids) may need a few frames to reach the old height;
+    // keep re-applying until it holds for a few frames, unless the user scrolls first.
+    const root = document.documentElement;
+    root.style.overflowAnchor = 'none';
     let frame = 0;
+    let tries = 0;
+    let settled = 0;
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      root.style.overflowAnchor = '';
+      for (const ev of ['wheel', 'touchstart', 'keydown'] as const) window.removeEventListener(ev, stop);
+    };
+    for (const ev of ['wheel', 'touchstart', 'keydown'] as const) window.addEventListener(ev, stop, { once: true, passive: true });
     const attempt = () => {
       window.scrollTo(0, saved);
-      if (Math.abs(window.scrollY - saved) > 2 && tries++ < 30) frame = requestAnimationFrame(attempt);
+      settled = Math.abs(window.scrollY - saved) <= 2 ? settled + 1 : 0;
+      if (settled >= 3 || ++tries > 60) stop();
+      else frame = requestAnimationFrame(attempt);
     };
     attempt();
-    return () => cancelAnimationFrame(frame);
+    return stop;
   }, [pageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Keeps one broken view from blanking the whole app. */
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error(error);
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="page page--narrow">
+        <div className="empty">
+          <p className="empty__title">Something went wrong on this page.</p>
+          <a className="button" href={href.home()}>
+            Back to search
+          </a>
+        </div>
+      </div>
+    );
+  }
 }
 
 function View({ route }: { route: Route }) {

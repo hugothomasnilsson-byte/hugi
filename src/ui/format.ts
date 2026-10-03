@@ -2,6 +2,13 @@ const dateFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'sho
 const longFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
+/** The platform's shortcut modifier, for hints: ⌘ on Apple devices, Ctrl elsewhere. */
+export const MOD = /Mac|iPhone|iPad|iPod/i.test(
+  (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? navigator.userAgent,
+)
+  ? '⌘'
+  : 'Ctrl';
+
 export function formatDate(ts: number) {
   return dateFmt.format(ts);
 }
@@ -30,6 +37,11 @@ export function prettyLink(url: string) {
   } catch {
     return url;
   }
+}
+
+/** Best text to stand in for an entry without an image. */
+export function entryText(e: { title: string; notes: string; link: string; credit: string }) {
+  return e.notes || e.title || (e.link ? prettyLink(e.link) : '') || e.credit || 'Untitled';
 }
 
 /** Only http(s) links are rendered as clickable anchors. */

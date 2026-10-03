@@ -46,6 +46,8 @@ export function useUi<T>(sel: (s: UiState) => T): T {
 }
 
 export function openSheet(req: Omit<SheetRequest, 'nonce'> = {}) {
+  // Self-heal if the sheet's dialog is gone but its state lingered.
+  if (ui.sheet && !document.querySelector('dialog.sheet[open]')) set({ sheet: null, incoming: null });
   if (ui.sheet && !req.entryId && req.files?.length) {
     // Already composing: append the new images to the open draft.
     set({ incoming: { files: req.files, nonce: ++nonce } });

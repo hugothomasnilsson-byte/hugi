@@ -112,9 +112,12 @@ export function TagInput({ tags, onChange, library, placeholder = 'add a tag', a
                 commit(showList ? options[Math.max(0, active)] : text);
               } else if (e.key === 'Backspace' && !text && tags.length) {
                 onChange(tags.slice(0, -1));
-              } else if (e.key === 'Escape' && open) {
+              } else if (e.key === 'Escape' && (showList || text)) {
+                // preventDefault stops the surrounding <dialog> treating this as "close".
+                e.preventDefault();
                 e.stopPropagation();
-                setOpen(false);
+                if (showList) setOpen(false);
+                else setText('');
               }
             }}
           />
@@ -142,7 +145,7 @@ export function TagInput({ tags, onChange, library, placeholder = 'add a tag', a
           {query && (
             <li className="tag-input__new label" aria-hidden="true">
               {`↵ adds #${query}`}
-              {options[0] && options[0] !== query ? ` · Tab completes #${options[0]}` : ''}
+              {options[0] && options[0] !== query && <span className="only-fine"> · Tab completes #{options[0]}</span>}
             </li>
           )}
         </ul>

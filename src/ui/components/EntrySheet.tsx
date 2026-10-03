@@ -18,6 +18,7 @@ import { newId } from '../../lib/id';
 import { TagInput } from './TagInput';
 import { Img } from './Img';
 import { OcrBadge } from './OcrBadge';
+import { MOD } from '../format';
 
 interface SheetImage {
   id: ID;
@@ -57,6 +58,21 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
 
   const touch = () => setDirty(true);
 
+  // Images still in this draft, and whether the sheet has been torn down, so late
+  // results for discarded images are ignored instead of being read and leaked.
+  const live = useRef(new Set<ID>());
+  const disposed = useRef(false);
+  useEffect(() => {
+    disposed.current = false;
+    return () => {
+      disposed.current = true;
+    };
+  }, []);
+  /** Set right before we close the sheet ourselves, to tell our close from the browser's. */
+  const closing = useRef(false);
+  const downOnBackdrop = useRef(false);
+  const dragTimer = useRef<number | undefined>(undefined);
+
   /* ---------------- images ---------------- */
 
   const addFiles = useCallback((files: File[]) => {
@@ -65,10 +81,12 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
     if (!accepted.length) return;
     setDirty(true);
     const fresh = accepted.map((file) => ({ file, id: newId() }));
+    for (const { id } of fresh) live.current.add(id);
     setImages((prev) => [...prev, ...fresh.map(({ id }) => ({ id, status: 'preparing' as const, ratio: 1 }))]);
     for (const { file, id } of fresh) {
       prepareImage(file)
         .then((prepared) => {
+          if (disposed.current || !live.current.has(id)) return;
           const previewUrl = URL.createObjectURL(prepared.thumb);
           setImages((prev) =>
             prev.map((img) =>
@@ -102,12 +120,11 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
 
   const removeImage = (id: ID) => {
     touch();
-    setImages((prev) => {
-      const img = prev.find((i) => i.id === id);
-      if (img?.previewUrl) URL.revokeObjectURL(img.previewUrl);
-      if (img && !img.meta) forgetAnalysis([id]);
-      return prev.filter((i) => i.id !== id);
-    });
+    live.current.delete(id);
+    const img = images.find((i) => i.id === id);
+    if (img?.previewUrl) URL.revokeObjectURL(img.previewUrl);
+    if (img && !img.meta) forgetAnalysis([id]);
+    setImages((prev) => prev.filter((i) => i.id !== id));
   };
 
   const moveImage = (id: ID, dir: -1 | 1) => {
@@ -161,20 +178,29 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
   }, [request.files]);
 
   const cleanup = (saved: boolean) => {
+    disposed.current = true;
+    window.clearTimeout(dragTimer.current);
     for (const img of images) if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     if (!saved) forgetAnalysis(images.filter((i) => !i.meta).map((i) => i.id));
+  };
+
+  const close = (saved: boolean) => {
+    cleanup(saved);
+    closing.current = true;
+    closeSheet();
   };
 
   const cancel = () => {
     if (saving) return;
     if (dirty && !confirm(editing ? 'Discard your changes?' : 'Discard this entry?')) return;
-    cleanup(false);
-    closeSheet();
+    close(false);
   };
 
   const preparing = images.some((i) => i.status === 'preparing');
   const usable = images.filter((i) => i.status === 'ready');
-  const canSave = !saving && !preparing && (usable.length > 0 || title.trim() !== '' || notes.trim() !== '');
+  const hasContent =
+    usable.length > 0 || !!title.trim() || !!notes.trim() || !!link.trim() || !!credit.trim() || tags.length > 0;
+  const canSave = !saving && !preparing && hasContent;
 
   const save = async () => {
     if (!canSave) return;
@@ -192,8 +218,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         },
         editing?.id,
       );
-      cleanup(true);
-      closeSheet();
+      close(true);
       if (!editing) {
         navigate(href.entry(id));
         toast('Added to your almanac');
@@ -216,8 +241,24 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         e.preventDefault();
         cancel();
       }}
+      onClose={() => {
+        // The browser may close a modal dialog on its own (e.g. after repeated Escape
+        // presses). Reopen a draft with unsaved work; tear down a clean one fully.
+        if (closing.current) return;
+        const dlg = dialogRef.current;
+        if (!dlg?.isConnected) return;
+        if (dirty || saving) dlg.showModal();
+        else close(false);
+      }}
+      onPointerDown={(e) => {
+        downOnBackdrop.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === dialogRef.current) cancel();
+        // Only a press that started and ended on the backdrop closes the sheet,
+        // not a text selection dragged past the panel's edge.
+        const onBackdrop = downOnBackdrop.current && e.target === e.currentTarget;
+        downOnBackdrop.current = false;
+        if (onBackdrop) cancel();
       }}
       onKeyDown={(e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -226,18 +267,23 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         }
       }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragging(true);
-        }
-      }}
-      onDragLeave={(e) => {
-        if (e.currentTarget === e.target) setDragging(false);
-      }}
-      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
         e.stopPropagation();
+        setDragging(true);
+        // dragover repeats while hovering; when it stops, the drag has left or been cancelled.
+        window.clearTimeout(dragTimer.current);
+        dragTimer.current = window.setTimeout(() => setDragging(false), 250);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        // Text and links dropped into a field insert normally.
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        window.clearTimeout(dragTimer.current);
         setDragging(false);
         addFiles([...e.dataTransfer.files]);
       }}
@@ -268,7 +314,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
               <button type="button" className="dropzone" onClick={() => fileRef.current?.click()}>
                 <span className="dropzone__title">Add images</span>
                 <span className="dropzone__hint label">
-                  <span className="only-fine">Drop, paste (⌘V) or </span>choose from your library
+                  <span className="only-fine">Drop, paste ({MOD} V) or </span>choose from your library
                 </span>
               </button>
             ) : (
@@ -434,13 +480,21 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
 
         <footer className="sheet__foot">
           <span className="sheet__status label">
-            {preparing ? 'Preparing images…' : images.some((i) => analysis.get(i.id)?.status === 'running') ? 'Reading text on this device…' : <span className="only-fine">⌘↵ to save · Esc to close</span>}
+            {preparing ? (
+              'Preparing images…'
+            ) : images.some((i) => analysis.get(i.id)?.status === 'running') ? (
+              'Reading text on this device…'
+            ) : hasContent ? (
+              <span className="only-fine">{MOD} ↵ to save · Esc to close</span>
+            ) : (
+              'Add an image, a title, notes or a link'
+            )}
           </span>
           <button type="button" className="button" onClick={cancel}>
             Cancel
           </button>
           <button type="submit" className="button button--primary" disabled={!canSave}>
-            {saving ? 'Saving…' : editing ? 'Save changes' : 'Add to Syble'}
+            {saving ? 'Saving…' : editing ? 'Save changes' : hasContent ? 'Add to Syble' : 'Add something first'}
           </button>
         </footer>
       </form>
