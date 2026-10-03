@@ -1,0 +1,192 @@
+/* ------------------------------------------------------------------
+   Syble — design tokens and base typography
+   A restrained, editorial palette: warm paper, soft ink, one red.
+   ------------------------------------------------------------------ */
+
+:root {
+  --paper: #f6f4ef;
+  --paper-raised: #fbfaf7;
+  --paper-sunk: #eeebe4;
+  --ink: #181715;
+  --ink-soft: #3d3a35;
+  --muted: #7c776d;
+  --faint: #a8a398;
+  --rule: rgba(24, 23, 21, 0.11);
+  --rule-strong: rgba(24, 23, 21, 0.26);
+  --accent: #a8432a;
+  --mark-bg: rgba(204, 151, 46, 0.28);
+  --mark-ink: inherit;
+  --scrim: rgba(246, 244, 239, 0.86);
+  --shadow: 0 1px 2px rgba(24, 23, 21, 0.04), 0 18px 48px -18px rgba(24, 23, 21, 0.22);
+  --lightbox: #0e0d0c;
+  --focus: rgba(168, 67, 42, 0.45);
+
+  --serif: 'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --text: 'Newsreader Variable', 'Iowan Old Style', Georgia, serif;
+  --sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --gutter: clamp(20px, 4vw, 56px);
+  --max: 1480px;
+  --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dock-h: 0px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #11100e;
+    --paper-raised: #181714;
+    --paper-sunk: #1d1b18;
+    --ink: #ece8e0;
+    --ink-soft: #c9c4b9;
+    --muted: #8d877c;
+    --faint: #5f5a51;
+    --rule: rgba(236, 232, 224, 0.1);
+    --rule-strong: rgba(236, 232, 224, 0.24);
+    --accent: #d9765a;
+    --mark-bg: rgba(214, 170, 72, 0.3);
+    --scrim: rgba(17, 16, 14, 0.86);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+    --focus: rgba(217, 118, 90, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --paper: #11100e;
+  --paper-raised: #181714;
+  --paper-sunk: #1d1b18;
+  --ink: #ece8e0;
+  --ink-soft: #c9c4b9;
+  --muted: #8d877c;
+  --faint: #5f5a51;
+  --rule: rgba(236, 232, 224, 0.1);
+  --rule-strong: rgba(236, 232, 224, 0.24);
+  --accent: #d9765a;
+  --mark-bg: rgba(214, 170, 72, 0.3);
+  --scrim: rgba(17, 16, 14, 0.86);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+  --focus: rgba(217, 118, 90, 0.5);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition: background-color 0.4s var(--ease), color 0.4s var(--ease);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--mark-bg);
+}
+
+mark {
+  background: var(--mark-bg);
+  color: var(--mark-ink);
+  border-radius: 2px;
+  padding: 0 0.06em;
+  margin: 0 -0.06em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Small mono label: the catalogue voice for metadata. */
+.label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.serif {
+  font-family: var(--serif);
+  font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
