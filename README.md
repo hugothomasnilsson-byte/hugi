@@ -13,6 +13,10 @@ found again instantly.
 - **Reads your images on the device.** Text in screenshots is extracted by an OCR engine bundled
   with the app, so nothing is ever uploaded. You can read and correct the text on each source page.
   Syble also suggests hashtags and pulls a small colour palette from each image.
+- **Reads more than English.** In *Library → Reading text*, turn on Swedish, Danish, Norwegian,
+  German, Dutch, French, Spanish, Italian or Portuguese so accents come out right. Each language
+  model is served by Syble itself and cached for offline use when you switch it on. *Re-read all
+  images* applies the new languages to your existing library, skipping any text you corrected by hand.
 - **Yours alone.** Everything lives in your browser's storage (IndexedDB) on this device. There's no
   account, no server and no network access. Export the whole library as a `.zip` to back it up or
   move it to another device.
@@ -32,8 +36,11 @@ Accents and case are ignored: `cafe` finds *Café*.
 
 ## Shortcuts
 
-<kbd>/</kbd> search · <kbd>⌘V</kbd> add from the clipboard · <kbd>N</kbd> new entry ·
-<kbd>⌘↵</kbd> save · <kbd>←</kbd> <kbd>→</kbd> step through images · <kbd>Esc</kbd> close or clear.
+<kbd>/</kbd> search · <kbd>⌘V</kbd>/<kbd>Ctrl V</kbd> add from the clipboard · <kbd>N</kbd> new entry ·
+<kbd>⌘↵</kbd>/<kbd>Ctrl ↵</kbd> save · <kbd>←</kbd> <kbd>→</kbd> step through images · <kbd>Esc</kbd> close or clear.
+
+On a phone, the search bar and the **+** button sit in a dock at the bottom of the screen, within
+thumb's reach. Tap hashtag chips to combine them and tap again to remove one; Back undoes a tap.
 
 ## Putting Syble on your phone
 
@@ -61,9 +68,9 @@ separate from Safari tabs.
 ```bash
 npm install          # also copies the OCR engine into public/tesseract
 npm run dev          # http://localhost:5173
-npm test             # unit tests (vitest)
+npm test             # unit tests (vitest, 363 tests)
 npm run build        # production build in dist/ (type-checks first)
-npm run e2e          # end-to-end tests in Chromium (builds and serves the app)
+npm run e2e          # end-to-end tests in Chromium, desktop and phone (builds and serves the app)
 node tests/ocr/run-ocr-check.mjs   # real OCR check in a browser, with the network blocked
 ```
 

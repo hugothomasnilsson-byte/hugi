@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { historyKey } from '../../state/router';
 
 export interface MasonryItem {
@@ -23,6 +23,18 @@ const PAGE = 40;
 
 /** How far each history entry's grid had paged, so Back can return to the same spot. */
 const pagedTo = new Map<string, number>();
+
+/**
+ * A grid cell decides once, when it mounts, whether it is new: cards animate in the
+ * first time they appear, not again when live search moves them to another column.
+ */
+function Cell({ id, seen, children }: { id: string; seen: MutableRefObject<Set<string>>; children: ReactNode }) {
+  const [isNew] = useState(() => !seen.current.has(id));
+  useEffect(() => {
+    seen.current.add(id);
+  }, [id, seen]);
+  return <div className={`masonry__cell${isNew ? ' is-new' : ''}`}>{children}</div>;
+}
 
 /**
  * Left-to-right masonry: items are placed into the currently shortest column
@@ -50,12 +62,6 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  // Remember what has been shown once it is on screen (after commit, so StrictMode's
-  // double render doesn't swallow the first animation).
-  useEffect(() => {
-    for (const item of items.slice(0, limit)) seen.current.add(item.key);
-  });
 
   // Reset paging when the result set changes (but not on mount, which may be a Back).
   const signature = `${items[0]?.key}|${items.length}`;
@@ -99,11 +105,10 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     for (let c = 1; c < cols; c++) if (heights[c] < heights[shortest] - 1) shortest = c;
     const visual = item.ratio ? colW / item.ratio : colW * 0.62;
     heights[shortest] += visual + item.extra() + g;
-    const isNew = !seen.current.has(item.key);
     columns[shortest].push(
-      <div key={item.key} className={`masonry__cell ${isNew ? 'is-new' : ''}`}>
+      <Cell key={item.key} id={item.key} seen={seen}>
         {item.render()}
-      </div>,
+      </Cell>,
     );
   }
 

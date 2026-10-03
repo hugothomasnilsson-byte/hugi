@@ -241,3 +241,65 @@ test.describe('Syble', () => {
     expect(overflow).toBeLessThanOrEqual(0);
   });
 });
+
+test.describe('Syble — review regressions', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetApp(page);
+  });
+
+  test('a pasted link alone can be saved as an entry', async ({ page }) => {
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', 'https://www.are.na/block/123');
+      window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+    });
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.getByPlaceholder('https://')).toHaveValue('https://www.are.na/block/123');
+    await sheet.getByRole('button', { name: 'Add to Syble' }).click();
+    await expect(sheet).toBeHidden();
+    await page.goto('./#/all');
+    await expect(page.locator('.card').first()).toContainText('are.na/block/123');
+  });
+
+  test('hashtag chips combine and toggle off while searching', async ({ page }) => {
+    await addEntry(page, { title: 'Both', tags: ['film', 'colour'] });
+    await addEntry(page, { title: 'Film only', tags: ['film'] });
+    await addEntry(page, { title: 'Colour only', tags: ['colour'] });
+    await page.goto('./#/');
+    const chips = page.getByRole('navigation', { name: 'Most-used hashtags' });
+    await chips.getByRole('button', { name: /#film/ }).click();
+    await expect(page.locator('.card')).toHaveCount(2);
+    await chips.getByRole('button', { name: /#colour/ }).click();
+    await expect(page.locator('.card')).toHaveCount(1);
+    await expect(chips.getByRole('button', { name: /#colour/ })).toHaveAttribute('aria-pressed', 'true');
+    await chips.getByRole('button', { name: /#film/ }).click();
+    await expect(page.locator('.card')).toHaveCount(2);
+    // Back steps through chip taps.
+    await page.goBack();
+    await expect(page.locator('.card')).toHaveCount(1);
+  });
+
+  test('a tag can be removed from the source page and restored with undo', async ({ page }) => {
+    await addEntry(page, { title: 'Tagged', tags: ['keep', 'drop'] });
+    await page.getByRole('button', { name: 'Remove #drop' }).click();
+    await expect(page.getByRole('link', { name: '#drop' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('link', { name: '#drop' })).toBeVisible();
+  });
+
+  test('Back returns to the same place in a long grid', async ({ page }) => {
+    for (let i = 0; i < 18; i++) await addEntry(page, { title: `Entry ${String(i).padStart(2, '0')}`, notes: 'x'.repeat(200) });
+    await page.goto('./#/all');
+    await page.locator('.card').nth(14).scrollIntoViewIfNeeded();
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(() => window.scrollY);
+    expect(before).toBeGreaterThan(400);
+    // A DOM click, so Playwright doesn't scroll the card into view first.
+    await page.locator('.card').nth(14).evaluate((el: HTMLElement) => el.click());
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await page.goBack();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before - 10);
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(before + 10);
+  });
+});

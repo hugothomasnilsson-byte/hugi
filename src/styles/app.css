@@ -56,7 +56,7 @@ button.link {
 .wordmark__name {
   position: relative;
   display: inline-block;
-  padding-bottom: 0.16em;
+  padding-bottom: 0.3em;
   font-family: var(--serif);
   font-style: italic;
   font-size: 30px;
@@ -71,7 +71,7 @@ button.link {
   width: 100%;
   height: 1.5px;
   background: var(--accent);
-  transform: scaleX(0.22);
+  transform: scaleX(0.2);
   transform-origin: left center;
   transition: transform 0.6s var(--ease-out);
 }
@@ -86,7 +86,7 @@ button.link {
   top: 0;
   z-index: 20;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 24px;
   width: 100%;
@@ -98,7 +98,7 @@ button.link {
 
 .header__nav {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: clamp(16px, 2.6vw, 32px);
 }
 
@@ -129,6 +129,7 @@ button.link {
 }
 
 .header__add {
+  align-self: center;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -250,10 +251,12 @@ button.link {
   max-width: 860px;
   transition: max-width 0.6s var(--ease-out);
 }
-.search.is-active .search__form,
-.search.is-active .search__completions,
-.search.is-active .search__tags {
-  max-width: 100%;
+@media (min-width: 721px) {
+  .search.is-active .search__form,
+  .search.is-active .search__completions,
+  .search.is-active .search__tags {
+    max-width: 100%;
+  }
 }
 
 .search__input {
@@ -550,9 +553,7 @@ button.chip:hover {
 .recent__item .img img {
   transition: transform 0.6s var(--ease-out), opacity 0.6s var(--ease);
 }
-.recent__item:hover .img img {
-  transform: scale(1.025);
-}
+
 
 /* ---------------- Results ---------------- */
 
@@ -640,9 +641,7 @@ button.chip:hover {
 .card__img img {
   transition: opacity 0.6s var(--ease), transform 0.9s var(--ease-out), filter 0.4s var(--ease);
 }
-.card:hover .card__img img {
-  transform: scale(1.02);
-}
+
 .card__count {
   position: absolute;
   right: 10px;
@@ -667,9 +666,7 @@ button.chip:hover {
   background: var(--paper-sunk);
   transition: background-color 0.3s var(--ease);
 }
-.card:hover .card__visual--text {
-  background: var(--paper-raised);
-}
+
 .card__excerpt {
   margin: 0;
   display: -webkit-box;
@@ -700,9 +697,7 @@ button.chip:hover {
   background-position: 0 100%;
   transition: background-size 0.45s var(--ease-out);
 }
-.card:hover .card__title-text {
-  background-size: 100% 1px;
-}
+
 .is-untitled {
   color: var(--faint);
   font-style: italic;
@@ -1293,14 +1288,6 @@ dialog {
   transform-origin: left;
   transition: transform 0.3s var(--ease);
 }
-.ocr-badge__bar {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 2px;
-  background: var(--accent);
-  transform-origin: left;
-  transition: transform 0.3s var(--ease);
-}
 .ocr-badge.is-error {
   color: var(--accent);
 }
@@ -1429,7 +1416,7 @@ dialog {
   display: flex;
   gap: 14px;
   margin: -6px -5px;
-  padding: 6px 5px;
+  padding: 6px 5px 8px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
@@ -2153,7 +2140,7 @@ kbd {
     padding: 0 6px 0 0;
   }
   .page-head__row {
-    align-items: flex-start;
+    align-items: baseline;
   }
 }
 
@@ -2266,5 +2253,21 @@ kbd {
     content: '';
     position: absolute;
     inset: -14px -10px;
+  }
+}
+
+/* Hover flourishes only where hovering exists, so taps don't leave them stuck on. */
+@media (hover: hover) {
+  .card:hover .card__img img {
+    transform: scale(1.02);
+  }
+  .card:hover .card__title-text {
+    background-size: 100% 1px;
+  }
+  .recent__item:hover .img img {
+    transform: scale(1.025);
+  }
+  .card:hover .card__visual--text {
+    background: var(--paper-raised);
   }
 }

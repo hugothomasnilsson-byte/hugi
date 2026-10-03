@@ -31,7 +31,7 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
     ? [...entry.tags].sort((a, b) => Number(tagMatches(b, query)) - Number(tagMatches(a, query)))
     : entry.tags;
   const shownTags = ordered.slice(0, 4);
-  const unseen = unseenFields(result);
+  const unseen = unseenFields(result, query, shownTags);
 
   return (
     <a href={href.entry(entry.id)} className={`card ${cover ? '' : 'card--text'}`}>
@@ -100,10 +100,12 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
  * Matched fields the caption doesn't already show: the title, tags, swatches and
  * snippet speak for themselves, so "Found in" only names what is otherwise invisible.
  */
-function unseenFields(result?: SearchResult): SearchField[] {
+function unseenFields(result?: SearchResult, query?: ParsedQuery, shownTags?: string[]): SearchField[] {
   if (!result) return [];
-  const shown = new Set<SearchField>(['title', 'tags', 'colour']);
+  const shown = new Set<SearchField>(['title']);
   if (result.snippet) shown.add(result.snippet.field);
+  if (result.swatches.length) shown.add('colour');
+  if (query && shownTags?.some((t) => tagMatches(t, query))) shown.add('tags');
   return result.fields.filter((f) => !shown.has(f));
 }
 
@@ -118,6 +120,6 @@ export function cardExtra(entry: Entry, result?: SearchResult) {
   if (entry.title.length > 34) h += 26;
   if (result?.snippet) h += 64;
   if (result?.swatches.length) h += 22;
-  if (unseenFields(result).length) h += 20;
+  if (result && result.fields.some((f) => f !== 'title' && f !== 'tags' && f !== 'colour' && f !== result.snippet?.field)) h += 20;
   return h;
 }
