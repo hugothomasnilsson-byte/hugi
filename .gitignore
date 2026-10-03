@@ -1,0 +1,8 @@
+node_modules
+dist
+dev-dist
+public/tesseract
+*.tsbuildinfo
+test-results
+playwright-report
+.DS_Store
