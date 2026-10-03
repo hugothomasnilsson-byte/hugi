@@ -20,6 +20,7 @@ import { suggestTags } from '../../lib/suggest';
 import { parseTagList } from '../../lib/tags';
 import { isLight } from '../../lib/colour';
 import { Img } from '../components/Img';
+import { ask } from '../components/Confirm';
 import { Lightbox } from '../components/Lightbox';
 import { EntryGrid } from '../components/EntryGrid';
 import { formatLongDate, prettyLink, safeHref } from '../format';
@@ -117,7 +118,13 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
   }, [byNewest, entry]);
 
   const onDelete = async () => {
-    if (!confirm(`Delete “${title}”? This removes it and its images from this device.`)) return;
+    const ok = await ask({
+      title: `Delete “${title}”?`,
+      body: 'This removes the entry and its images from this device.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     const restore = await deleteEntry(entry.id);
     goBack(href.home());
     toast('Entry deleted', {

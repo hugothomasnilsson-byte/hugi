@@ -5,6 +5,7 @@ import { dismissToast, isSheetOpen, openSheet, toast, useUi } from '../state/ui'
 import { isImageFile } from '../lib/images';
 import { Wordmark } from './components/Wordmark';
 import { EntrySheet } from './components/EntrySheet';
+import { ConfirmHost } from './components/Confirm';
 import { SearchView, SEARCH_INPUT_ID } from './views/SearchView';
 import { EntryView } from './views/EntryView';
 import { AllView } from './views/AllView';
@@ -164,6 +165,7 @@ export function App() {
         )}
       </main>
       <Dock route={route} />
+      <ConfirmHost />
       {sheet && <EntrySheet key={sheet.nonce} request={sheet} />}
       {dropping && (
         <div className="drop-overlay" aria-hidden="true">

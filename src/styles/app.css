@@ -2271,3 +2271,55 @@ kbd {
     background: var(--paper-raised);
   }
 }
+
+/* ---------------- Confirmation ---------------- */
+
+.confirm {
+  width: min(440px, calc(100vw - 32px));
+  margin: auto;
+  background: var(--paper-raised);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--rule), var(--shadow);
+}
+.confirm[open] {
+  animation: sheet-in 0.35s var(--ease-out) both;
+}
+.confirm::backdrop {
+  background: var(--backdrop);
+  animation: fade-in 0.25s var(--ease) both;
+}
+.confirm__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 28px;
+}
+.confirm__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.1;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.confirm__body {
+  margin: 0;
+  color: var(--ink-soft);
+}
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+.button--danger-solid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper-raised);
+}
+.button--danger-solid:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: brightness(0.94);
+}

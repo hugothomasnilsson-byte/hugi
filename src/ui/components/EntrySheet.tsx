@@ -19,6 +19,7 @@ import { TagInput } from './TagInput';
 import { Img } from './Img';
 import { OcrBadge } from './OcrBadge';
 import { MOD } from '../format';
+import { ask } from './Confirm';
 
 interface SheetImage {
   id: ID;
@@ -208,9 +209,21 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
     closeSheet();
   };
 
-  const cancel = () => {
-    if (saving) return;
-    if (dirty && !confirm(editing ? 'Discard your changes?' : 'Discard this entry?')) return;
+  const asking = useRef(false);
+  const cancel = async () => {
+    if (saving || asking.current) return;
+    if (dirty) {
+      asking.current = true;
+      const discard = await ask({
+        title: editing ? 'Discard your changes?' : 'Discard this entry?',
+        body: editing ? 'The entry stays as it was before you opened it.' : 'Nothing from this draft will be kept.',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep editing',
+        danger: true,
+      });
+      asking.current = false;
+      if (!discard) return;
+    }
     close(false);
   };
 
@@ -258,7 +271,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
       aria-labelledby="sheet-title"
       onCancel={(e) => {
         e.preventDefault();
-        cancel();
+        void cancel();
       }}
       onClose={() => {
         // The browser may close a modal dialog on its own (e.g. after repeated Escape
@@ -277,7 +290,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         // not a text selection dragged past the panel's edge.
         const onBackdrop = downOnBackdrop.current && e.target === e.currentTarget;
         downOnBackdrop.current = false;
-        if (onBackdrop) cancel();
+        if (onBackdrop) void cancel();
       }}
       onKeyDown={(e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -316,7 +329,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
         }}
       >
         <header className="sheet__head">
-          <button type="button" className="sheet__cancel label" onClick={cancel}>
+          <button type="button" className="sheet__cancel label" onClick={() => void cancel()}>
             Cancel
           </button>
           <h2 id="sheet-title" className="sheet__heading label">
@@ -518,7 +531,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
               'Add an image, a title, notes or a link'
             )}
           </span>
-          <button type="button" className="button" onClick={cancel}>
+          <button type="button" className="button" onClick={() => void cancel()}>
             Cancel
           </button>
           <button type="submit" className="button button--primary" disabled={!canSave}>

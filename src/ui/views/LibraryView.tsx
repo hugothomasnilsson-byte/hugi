@@ -8,6 +8,7 @@ import { clearLibrary } from '../../lib/db';
 import { MOD, formatBytes, plural } from '../format';
 import { useTheme, type ThemePref } from '../theme';
 import { Segmented } from '../components/Segmented';
+import { ask } from '../components/Confirm';
 
 export function LibraryView() {
   const { byNewest, tagCounts } = useDerived();
@@ -74,7 +75,12 @@ export function LibraryView() {
     if (
       mode === 'replace' &&
       byNewest.length > 0 &&
-      !confirm(`Replace your library with this backup? Your current ${plural(byNewest.length, 'entry', 'entries')} will be removed.`)
+      !(await ask({
+        title: 'Replace your library?',
+        body: `Your current ${plural(byNewest.length, 'entry', 'entries')} will be removed and replaced by the backup.`,
+        confirmLabel: 'Replace',
+        danger: true,
+      }))
     )
       return;
     setBusy('Importing…');
@@ -101,8 +107,14 @@ export function LibraryView() {
   };
 
   const onErase = async () => {
-    const answer = prompt(`This permanently erases all ${plural(byNewest.length, 'entry', 'entries')} from this device.\nType “erase” to confirm.`);
-    if (answer?.trim().toLowerCase() !== 'erase') return;
+    const ok = await ask({
+      title: 'Erase your library?',
+      body: `This permanently removes all ${plural(byNewest.length, 'entry', 'entries')} and their images from this device.`,
+      confirmLabel: 'Erase library',
+      danger: true,
+      typeToConfirm: 'erase',
+    });
+    if (!ok) return;
     await clearLibrary();
     await reloadStore();
     toast('Library erased');

@@ -92,6 +92,23 @@ test.describe('Syble', () => {
     await expect(page.locator('.card')).toHaveCount(1);
   });
 
+  test('discarding a draft asks first, and Keep editing keeps it', async ({ page }) => {
+    await page.locator('.header__add:visible').click();
+    const sheet = page.getByRole('dialog', { name: 'New entry' });
+    await sheet.getByPlaceholder('Title').fill('Half-written');
+    await page.keyboard.press('Escape');
+    const confirm = page.getByRole('alertdialog');
+    await expect(confirm).toContainText('Discard this entry?');
+    await confirm.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(sheet.getByPlaceholder('Title')).toHaveValue('Half-written');
+    await page.keyboard.press('Escape');
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard' }).click();
+    await expect(sheet).toBeHidden();
+    // The app is still usable afterwards.
+    await page.keyboard.press('n');
+    await expect(page.getByRole('dialog', { name: 'New entry' })).toBeVisible();
+  });
+
   test('keyboard: "/" focuses search, N opens a new entry, Esc closes', async ({ page }) => {
     await addEntry(page, { title: 'Something' });
     await page.goto('./#/all');
@@ -130,8 +147,10 @@ test.describe('Syble', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByRole('link', { name: '#later' })).toBeVisible();
 
-    page.once('dialog', (d) => d.accept());
     await page.getByRole('button', { name: 'Delete' }).click();
+    const confirmDelete = page.getByRole('alertdialog');
+    await expect(confirmDelete).toContainText('Delete “Final title”?');
+    await confirmDelete.getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByText('Entry deleted')).toBeVisible();
     await page.getByRole('button', { name: 'Undo' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Final title' })).toBeVisible();
@@ -199,8 +218,11 @@ test.describe('Syble', () => {
     const zip = readFileSync(path!);
 
     // Erase, then restore.
-    page.once('dialog', (d) => d.accept('erase'));
     await page.getByRole('button', { name: 'Erase library…' }).click();
+    const confirmErase = page.getByRole('alertdialog');
+    await expect(confirmErase.getByRole('button', { name: 'Erase library' })).toBeDisabled();
+    await confirmErase.getByRole('textbox').fill('erase');
+    await confirmErase.getByRole('button', { name: 'Erase library' }).click();
     await expect(page.getByText('Library erased')).toBeVisible();
 
     await page.locator('input[type=file][accept*="zip"]').setInputFiles({ name: 'b.zip', mimeType: 'application/zip', buffer: zip });
