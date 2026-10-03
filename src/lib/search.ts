@@ -1,3 +1,14 @@
+/**
+ * Syble's search engine: an in-memory, allocation-light linear scan.
+ *
+ * buildIndex() folds every entry once (lowercase, accents removed, whitespace
+ * collapsed) into a short "head" string of fields plus the OCR text, each with
+ * a trigram filter that rejects most entries without scanning their text.
+ * search() then checks each entry with plain substring matching, scores the
+ * best field per term and returns hits newest-first within equal scores.
+ * highlight() / makeSnippet() map matches in folded text back to the
+ * original characters for display.
+ */
 import type { Entry, HighlightSegment, ImageMeta, SearchDoc, SearchField, SearchResult, Swatch } from '../types';
 import { normalizeTag } from './tags';
 
@@ -61,7 +72,7 @@ type SnippetField = NonNullable<SearchResult['snippet']>['field'];
 /** Accents and invisible format characters (soft hyphen, ZWJ, BOM…) are dropped. */
 const STRIP_RE = /[\p{M}\p{Cf}]/gu;
 /** Letters NFKD leaves alone, plus typographic punctuation, mapped to plain forms. */
-const SPECIAL_RE = /[ßæœøłđðþıς‘’‛“”‟‐-―−]/g;
+const SPECIAL_RE = /[ßæœøłđðþıς\u2018\u2019\u201b\u201c\u201d\u201f\u2010-\u2015\u2212]/g;
 const SPECIAL_FOLDS: Readonly<Record<string, string>> = {
   ß: 'ss',
   æ: 'ae',
@@ -75,19 +86,19 @@ const SPECIAL_FOLDS: Readonly<Record<string, string>> = {
   // toLowerCase() picks final sigma by context, which would make whole-string and
   // per-character folding disagree; folding it to σ keeps them identical.
   ς: 'σ',
-  '‘': "'",
-  '’': "'",
-  '‛': "'",
-  '“': '"',
-  '”': '"',
-  '‟': '"',
-  '‐': '-',
-  '‑': '-',
-  '‒': '-',
-  '–': '-',
-  '—': '-',
-  '―': '-',
-  '−': '-',
+  '\u2018': "'",
+  '\u2019': "'",
+  '\u201b': "'",
+  '\u201c': '"',
+  '\u201d': '"',
+  '\u201f': '"',
+  '\u2010': '-',
+  '\u2011': '-',
+  '\u2012': '-',
+  '\u2013': '-',
+  '\u2014': '-',
+  '\u2015': '-',
+  '\u2212': '-',
 };
 const NON_ASCII_RE = /[^\x00-\x7f]/;
 const NON_ASCII_CODE_POINT_RE = /[\ud800-\udbff][\udc00-\udfff]|[^\x00-\x7f]/g;
@@ -329,12 +340,26 @@ function pushUnique<T>(list: T[], value: T): void {
   if (!list.includes(value)) list.push(value);
 }
 
+/**
+ * Exclusions need more than one character. A lone "-d" is almost always the
+ * start of "-digital" being typed, and acting on it would empty the results
+ * mid-word, since nearly every entry contains a "d" somewhere.
+ */
+function isExclusion(word: string): boolean {
+  const c = word.charCodeAt(0);
+  const firstSize = c >= 0xd800 && c <= 0xdbff && isLowSurrogate(word.charCodeAt(1)) ? 2 : 1;
+  return word.length > firstSize;
+}
+
 function isKnownTag(tag: string, knownTags: ReadonlySet<string> | undefined, stillTyping: boolean): boolean {
   if (!knownTags) return false;
   if (knownTags.has(tag)) return true;
+  // Tag filters ignore accents ("#facade" finds "façade"), so compare folded forms.
   // While the user is mid-way through "#facade", don't flash colour results for "#fac".
-  if (stillTyping) {
-    for (const known of knownTags) if (known.startsWith(tag)) return true;
+  // Only hex-like tokens get here, so this scan is rare.
+  for (const known of knownTags) {
+    const folded = foldText(known);
+    if (folded === tag || (stillTyping && folded.startsWith(tag))) return true;
   }
   return false;
 }
@@ -360,7 +385,7 @@ export function parseQuery(raw: string, knownTags?: ReadonlySet<string>): Parsed
       let close = quoteAt + 1;
       while (close < n && !QUOTE_CHARS.includes(text[close])) close++;
       const phrase = foldText(text.slice(quoteAt + 1, close)).trim();
-      if (phrase) pushUnique(negated ? q.excluded : q.phrases, phrase);
+      if (negated ? isExclusion(phrase) : phrase) pushUnique(negated ? q.excluded : q.phrases, phrase);
       i = close + 1;
       continue;
     }
@@ -383,10 +408,8 @@ export function parseQuery(raw: string, knownTags?: ReadonlySet<string>): Parsed
         lastTag = tag;
       }
     } else if (token[0] === '-') {
-      if (token.length > 1) {
-        const word = cleanWord(token.slice(1));
-        if (word) pushUnique(q.excluded, word);
-      }
+      const word = cleanWord(token.slice(1));
+      if (isExclusion(word)) pushUnique(q.excluded, word);
     } else {
       const word = cleanWord(token);
       if (word) pushUnique(q.terms, word);
@@ -413,18 +436,79 @@ function needlesOf(q: ParsedQuery): string[] {
 // Index
 // ---------------------------------------------------------------------------
 
+/**
+ * Order of the short fields inside an indexed document's `head` string. The
+ * colour words sit before the (possibly long) notes so they are found quickly;
+ * OCR text, the bulk of the data, is kept in a string of its own.
+ */
+const HEAD_FIELDS: readonly number[] = [TITLE, TAGS, CREDIT, LINK, COLOUR, NOTES];
+const HEAD_COLOUR_POS = HEAD_FIELDS.indexOf(COLOUR);
+const TEXT_FIELDS: readonly number[] = [TEXT];
+
+/**
+ * Each document carries two 2048-bit trigram filters (one for the head, one for
+ * the OCR text). A needle whose trigrams are not all present cannot occur, so
+ * most documents are rejected without scanning kilobytes of text. With 2 KB of
+ * OCR text a five-letter word gets roughly one false positive in twenty.
+ */
+const FILTER_WORDS = 64;
+
+function trigramBit(a: number, b: number, c: number): number {
+  return Math.imul(a * 961 + b * 31 + c, 0x9e3779b1) >>> 21;
+}
+
+function addTrigrams(bits: Uint32Array, offset: number, s: string): void {
+  if (s.length < 3) return;
+  let a = s.charCodeAt(0);
+  let b = s.charCodeAt(1);
+  for (let i = 2; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const bit = trigramBit(a, b, c);
+    bits[offset + (bit >>> 5)] |= 1 << (bit & 31);
+    a = b;
+    b = c;
+  }
+}
+
+/** (filter word, required bits) pairs for a needle, or null when it is too short to filter on. */
+type Signature = Int32Array | null;
+
+function signatureOf(needle: string): Signature {
+  if (needle.length < 3) return null;
+  const bits = new Uint32Array(FILTER_WORDS);
+  addTrigrams(bits, 0, needle);
+  const pairs: number[] = [];
+  for (let w = 0; w < FILTER_WORDS; w++) if (bits[w]) pairs.push(w, bits[w] | 0);
+  return Int32Array.from(pairs);
+}
+
+function mayContain(bits: Uint32Array, offset: number, signature: Signature): boolean {
+  if (!signature) return true;
+  for (let k = 0; k < signature.length; k += 2) {
+    const required = signature[k + 1];
+    if ((bits[offset + signature[k]] & required) !== required) return false;
+  }
+  return true;
+}
+
 interface IndexedDoc {
   entry: Entry;
   images: readonly ImageMeta[];
-  /** Folded fields in FIELDS order, separated by "\n" (which folding never leaves inside a field). */
-  hay: string;
-  /** Exclusive end offset of each field in `hay`. */
-  ends: number[];
+  /** Folded short fields in HEAD_FIELDS order, joined by "\n" (folding never leaves one inside a field). */
+  head: string;
+  /** Exclusive end offset of each HEAD_FIELDS field in `head`. */
+  headEnds: number[];
+  /** Folded OCR text of every image. */
+  text: string;
+  textEnds: number[];
+  /** Trigram filters: words [0, FILTER_WORDS) cover `head`, the rest cover `text`. */
+  bits: Uint32Array;
   /** Folded entry tags. */
   tags: string[];
-  /** All palette swatches, deduplicated by hex, heaviest first. */
+  /** All palette swatches, deduplicated by hex, heaviest first, with their Lab values and folded words. */
   swatches: Swatch[];
   labs: Lab[];
+  swatchWords: string[];
 }
 
 class Index implements SearchIndex {
@@ -474,30 +558,40 @@ function indexDoc(doc: SearchDoc, images: ImageMeta[]): IndexedDoc {
     if (s.family) colourWords.add(s.family);
     if (s.hex) colourWords.add(s.hex.toLowerCase());
   }
-  const fields = [
-    entry.title ?? '',
-    (entry.tags ?? []).join(' '),
-    entry.notes ?? '',
-    entry.credit ?? '',
-    entry.link ?? '',
-    joinImageText(images),
-    [...colourWords].join(' '),
-  ].map(foldText);
-  const ends: number[] = [];
-  let offset = 0;
-  for (const field of fields) {
-    offset += field.length;
-    ends.push(offset);
-    offset += 1; // separator
+
+  const source: string[] = [];
+  source[TITLE] = entry.title ?? '';
+  source[TAGS] = (entry.tags ?? []).join(' ');
+  source[NOTES] = entry.notes ?? '';
+  source[CREDIT] = entry.credit ?? '';
+  source[LINK] = entry.link ?? '';
+  source[COLOUR] = [...colourWords].join(' ');
+  const headParts = HEAD_FIELDS.map((slot) => foldText(source[slot]));
+  const headEnds: number[] = [];
+  let offset = -1;
+  for (const part of headParts) {
+    offset += part.length + 1;
+    headEnds.push(offset);
   }
+  const head = headParts.join('\n');
+  const text = foldText(joinImageText(images));
+
+  const bits = new Uint32Array(2 * FILTER_WORDS);
+  addTrigrams(bits, 0, head);
+  addTrigrams(bits, FILTER_WORDS, text);
+
   return {
     entry,
     images,
-    hay: fields.join('\n'),
-    ends,
+    head,
+    headEnds,
+    text,
+    textEnds: [text.length],
+    bits,
     tags: (entry.tags ?? []).map(foldText),
     swatches,
     labs: swatches.map((s) => rgbToLab(swatchRgb(s))),
+    swatchWords: swatches.map(swatchWords),
   };
 }
 
@@ -566,51 +660,66 @@ export function knownTagsOf(index: SearchIndex): ReadonlySet<string> {
 // Search
 // ---------------------------------------------------------------------------
 
-/** Scratch output for scanNeedle, reused to keep the hot loop allocation-free. */
+/** Scratch accumulator for scanNeedle, reused to keep the hot loop allocation-free. */
 const scan = { score: 0, mask: 0 };
 
 /**
- * Finds the best-scoring occurrence of `needle` in a document and the set of
- * fields it occurs in. Jumps field to field so long OCR text costs at most a
- * bounded number of boundary checks.
+ * Adds the best-scoring occurrence of `needle` in one region (head or text) to
+ * `scan`, along with every field it occurs in. Jumps field to field, so long
+ * OCR text costs at most a bounded number of word-boundary checks.
  */
-function scanNeedle(doc: IndexedDoc, needle: string): void {
-  const { hay, ends } = doc;
+function scanRegion(s: string, ends: readonly number[], slots: readonly number[], needle: string): void {
   const len = needle.length;
-  let best = 0;
-  let mask = 0;
-  let field = 0;
-  let pos = hay.indexOf(needle);
+  let best = scan.score;
+  let mask = scan.mask;
+  let f = 0;
+  let pos = s.indexOf(needle);
   while (pos !== -1) {
-    while (pos >= ends[field]) field++;
-    const fieldEnd = ends[field];
-    const weight = FIELD_WEIGHT[field];
-    const colourWords = field === COLOUR;
+    while (pos >= ends[f]) f++;
+    const fieldEnd = ends[f];
+    const slot = slots[f];
+    const weight = FIELD_WEIGHT[slot];
+    const colourWords = slot === COLOUR;
     let quality = 0;
     let seen = 0;
     while (pos !== -1 && pos < fieldEnd) {
-      const q = occurrenceQuality(hay, pos, len, colourWords);
+      const q = occurrenceQuality(s, pos, len, colourWords);
       if (q > quality) quality = q;
-      // Stop early once this field can't do better, or can't beat a better field.
-      if (quality === WHOLE_WORD || ++seen >= MAX_OCCURRENCES_PER_FIELD) break;
-      if (quality > 0 && weight * WHOLE_WORD <= best) break;
-      pos = hay.indexOf(needle, pos + 1);
+      // Once the field has matched, stop early when it can't do better or can't
+      // beat a better field. Before that (mid-word hits in the colour words
+      // count as no match), keep looking: a word-initial hit may come later.
+      if (quality > 0) {
+        if (quality === WHOLE_WORD || ++seen >= MAX_OCCURRENCES_PER_FIELD) break;
+        if (weight * WHOLE_WORD <= best) break;
+      }
+      pos = s.indexOf(needle, pos + 1);
     }
     if (quality > 0) {
-      mask |= 1 << field;
+      mask |= 1 << slot;
       if (weight * quality > best) best = weight * quality;
     }
-    if (pos !== -1 && pos < fieldEnd) pos = hay.indexOf(needle, fieldEnd + 1);
+    if (pos !== -1 && pos < fieldEnd) pos = s.indexOf(needle, fieldEnd + 1);
   }
   scan.score = best;
   scan.mask = mask;
 }
 
-function containsNeedle(doc: IndexedDoc, needle: string): boolean {
-  const { hay } = doc;
-  const colourStart = doc.ends[TEXT] + 1;
-  for (let pos = hay.indexOf(needle); pos !== -1; pos = hay.indexOf(needle, pos + 1)) {
-    if (pos < colourStart || occurrenceQuality(hay, pos, needle.length, true) > 0) return true;
+function scanNeedle(doc: IndexedDoc, needle: string, signature: Signature): void {
+  scan.score = 0;
+  scan.mask = 0;
+  if (mayContain(doc.bits, 0, signature)) scanRegion(doc.head, doc.headEnds, HEAD_FIELDS, needle);
+  if (mayContain(doc.bits, FILTER_WORDS, signature)) scanRegion(doc.text, doc.textEnds, TEXT_FIELDS, needle);
+}
+
+function containsNeedle(doc: IndexedDoc, needle: string, signature: Signature): boolean {
+  if (mayContain(doc.bits, FILTER_WORDS, signature) && doc.text.includes(needle)) return true;
+  if (!mayContain(doc.bits, 0, signature)) return false;
+  const { head, headEnds } = doc;
+  const colourStart = headEnds[HEAD_COLOUR_POS - 1] + 1;
+  const colourEnd = headEnds[HEAD_COLOUR_POS];
+  for (let pos = head.indexOf(needle); pos !== -1; pos = head.indexOf(needle, pos + 1)) {
+    if (pos < colourStart || pos >= colourEnd) return true;
+    if (occurrenceQuality(head, pos, needle.length, true) > 0) return true;
   }
   return false;
 }
@@ -618,16 +727,22 @@ function containsNeedle(doc: IndexedDoc, needle: string): boolean {
 interface CompiledQuery {
   q: ParsedQuery;
   needles: string[];
+  needleSignatures: Signature[];
   excluded: string[];
+  excludedSignatures: Signature[];
   tagFilters: { tag: string; prefix: boolean }[];
   colours: Lab[];
 }
 
 function compile(q: ParsedQuery): CompiledQuery {
+  const needles = needlesOf(q);
+  const excluded = q.excluded.filter(Boolean);
   return {
     q,
-    needles: needlesOf(q),
-    excluded: q.excluded.filter(Boolean),
+    needles,
+    needleSignatures: needles.map(signatureOf),
+    excluded,
+    excludedSignatures: excluded.map(signatureOf),
     tagFilters: q.tags.map((tag) => ({ tag: foldText(tag), prefix: tag === q.partialTag })),
     colours: q.colours.map((c) => rgbToLab(c.rgb)),
   };
@@ -655,68 +770,20 @@ function colourQueryScore(doc: IndexedDoc, target: Lab): number {
   return best;
 }
 
-function matchedSwatches(doc: IndexedDoc, cq: CompiledQuery, colourNeedles: string[]): Swatch[] {
+function matchedSwatches(doc: IndexedDoc, cq: CompiledQuery, needleMasks: readonly number[]): Swatch[] {
+  const colourNeedles = cq.needles.filter((_, k) => needleMasks[k] & (1 << COLOUR));
   const out: Swatch[] = [];
   doc.swatches.forEach((swatch, i) => {
     const byQuery =
       swatch.weight >= MIN_SWATCH_WEIGHT &&
       cq.colours.some((target) => labDistance(doc.labs[i], target) < COLOUR_MATCH_THRESHOLD);
-    if (byQuery) {
-      out.push(swatch);
-    } else if (colourNeedles.length) {
-      const words = swatchWords(swatch);
-      if (colourNeedles.some((needle) => hasColourWord(words, needle))) out.push(swatch);
-    }
+    if (byQuery || colourNeedles.some((needle) => hasColourWord(doc.swatchWords[i], needle))) out.push(swatch);
   });
   return out;
 }
 
-function originalText(doc: IndexedDoc, field: SnippetField): string {
-  switch (field) {
-    case 'notes':
-      return doc.entry.notes ?? '';
-    case 'credit':
-      return doc.entry.credit ?? '';
-    case 'link':
-      return doc.entry.link ?? '';
-    case 'text':
-      return joinImageText(doc.images);
-  }
-}
-
-/**
- * Snippets are built on first read: a broad query can match thousands of
- * entries, but only the handful on screen ever show one.
- */
-function makeResult(
-  doc: IndexedDoc,
-  score: number,
-  fields: SearchField[],
-  snippetField: SnippetField | null,
-  swatches: Swatch[],
-  q: ParsedQuery,
-): SearchResult {
-  let snippet: SearchResult['snippet'] | undefined = snippetField ? undefined : null;
-  return {
-    entry: doc.entry,
-    score,
-    fields,
-    get snippet() {
-      if (snippet === undefined) {
-        const segments = makeSnippet(originalText(doc, snippetField!), q);
-        snippet = segments ? { field: snippetField!, segments } : null;
-      }
-      return snippet;
-    },
-    set snippet(value) {
-      snippet = value;
-    },
-    swatches,
-  };
-}
-
 /** Picks the long-form field showing the most terms the title doesn't already show. */
-function chooseSnippetField(needleMasks: number[]): SnippetField | null {
+function chooseSnippetField(needleMasks: readonly number[]): SnippetField | null {
   let bestField: SnippetField | null = null;
   let bestCount = 0;
   for (const slot of SNIPPET_FIELDS) {
@@ -732,13 +799,84 @@ function chooseSnippetField(needleMasks: number[]): SnippetField | null {
   return bestField;
 }
 
+function originalText(doc: IndexedDoc, field: SnippetField): string {
+  switch (field) {
+    case 'notes':
+      return doc.entry.notes ?? '';
+    case 'credit':
+      return doc.entry.credit ?? '';
+    case 'link':
+      return doc.entry.link ?? '';
+    case 'text':
+      return joinImageText(doc.images);
+  }
+}
+
+/** Matched-field lists for every field bitmask, in importance order. */
+const FIELDS_BY_MASK: readonly (readonly SearchField[])[] = Array.from({ length: 1 << FIELDS.length }, (_, mask) =>
+  FIELDS.filter((_, slot) => mask & (1 << slot)),
+);
+
+/**
+ * A search hit. `snippet` is built on first read: a broad query (the first
+ * letter typed) can match thousands of entries, but only the handful on screen
+ * ever show one. A class keeps creating thousands of these cheap; note that the
+ * getter lives on the prototype, so read `result.snippet` rather than relying
+ * on object spread to copy it (JSON serialisation includes it via toJSON).
+ */
+class Result implements SearchResult {
+  readonly entry: Entry;
+  readonly #doc: IndexedDoc;
+  readonly #field: SnippetField | null;
+  readonly #q: ParsedQuery;
+  #snippet: SearchResult['snippet'] | undefined;
+
+  constructor(
+    doc: IndexedDoc,
+    readonly score: number,
+    readonly fields: SearchField[],
+    readonly swatches: Swatch[],
+    field: SnippetField | null,
+    q: ParsedQuery,
+  ) {
+    this.entry = doc.entry;
+    this.#doc = doc;
+    this.#field = field;
+    this.#q = q;
+    this.#snippet = field ? undefined : null;
+  }
+
+  get snippet(): SearchResult['snippet'] {
+    if (this.#snippet === undefined) {
+      const field = this.#field!;
+      const segments = makeSnippet(originalText(this.#doc, field), this.#q);
+      this.#snippet = segments ? { field, segments } : null;
+    }
+    return this.#snippet;
+  }
+
+  set snippet(value: SearchResult['snippet']) {
+    this.#snippet = value;
+  }
+
+  toJSON(): SearchResult {
+    return { entry: this.entry, score: this.score, fields: this.fields, snippet: this.snippet, swatches: this.swatches };
+  }
+}
+
+function makeResult(doc: IndexedDoc, score: number, mask: number, needleMasks: readonly number[], cq: CompiledQuery): SearchResult {
+  const fields = FIELDS_BY_MASK[mask].slice();
+  const swatches = mask & (1 << COLOUR) ? matchedSwatches(doc, cq, needleMasks) : [];
+  return new Result(doc, score, fields, swatches, chooseSnippetField(needleMasks), cq.q);
+}
+
 export function search(index: SearchIndex, raw: string): SearchResult[] {
   if (!(index instanceof Index)) throw new TypeError('search() expects an index created by buildIndex()');
   const q = parseQuery(raw, index.knownTags);
   if (isEmptyQuery(q)) return [];
   const cq = compile(q);
-  const { needles, excluded, tagFilters, colours } = cq;
-  const needleMasks = new Array<number>(needles.length);
+  const { needles, needleSignatures, excluded, excludedSignatures, tagFilters, colours } = cq;
+  const needleMasks = new Array<number>(needles.length).fill(0);
   const results: SearchResult[] = [];
 
   docs: for (let d = 0; d < index.docs.length; d++) {
@@ -759,21 +897,17 @@ export function search(index: SearchIndex, raw: string): SearchResult[] {
       mask |= 1 << COLOUR;
     }
     for (let k = 0; k < needles.length; k++) {
-      scanNeedle(doc, needles[k]);
+      scanNeedle(doc, needles[k], needleSignatures[k]);
       if (scan.mask === 0) continue docs;
       score += scan.score;
       mask |= scan.mask;
       needleMasks[k] = scan.mask;
     }
-    for (const word of excluded) {
-      if (containsNeedle(doc, word)) continue docs;
+    for (let k = 0; k < excluded.length; k++) {
+      if (containsNeedle(doc, excluded[k], excludedSignatures[k])) continue docs;
     }
 
-    const fields = FIELDS.filter((_, slot) => mask & (1 << slot));
-    const colourNeedles = needles.filter((_, k) => needleMasks[k] & (1 << COLOUR));
-    const swatches = mask & (1 << COLOUR) ? matchedSwatches(doc, cq, colourNeedles) : [];
-    const snippetField = needles.length ? chooseSnippetField(needleMasks) : null;
-    results.push(makeResult(doc, score + index.recency[d], fields, snippetField, swatches, q));
+    results.push(makeResult(doc, score + index.recency[d], mask, needleMasks, cq));
   }
 
   return results.sort((a, b) => b.score - a.score || b.entry.createdAt - a.entry.createdAt);
@@ -791,9 +925,118 @@ interface RawMatch {
   needle: number;
 }
 
+/**
+ * A position map built in bulk: ASCII between the spans that folding rewrites
+ * (whitespace and non-ASCII code points) maps one to one, so only those spans
+ * are recorded. Several times faster than foldWithMap on long, mostly-ASCII OCR
+ * text, which matters because a broad query can ask for thousands of snippets.
+ */
+interface SpanMap {
+  /** Identical to foldText(text). */
+  folded: string;
+  /** Per rewritten span, in text order: its range in `folded` and in the original text. */
+  foldedStarts: number[];
+  foldedEnds: number[];
+  starts: number[];
+  ends: number[];
+}
+
+/** What SpanMap rewrites: whitespace runs, lone non-space whitespace (both minus U+FEFF, which folds away), any other non-ASCII code point. */
+const SPAN_RE =
+  /[\t-\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]{2,}|[\t-\r\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\ud800-\udbff][\udc00-\udfff]|[^\x00-\x7f]/g;
+
+/**
+ * Returns null when folding needs whitespace collapsing across span boundaries
+ * ("¨" folds to a space; "a \u0301 b" leaves two spaces once the accent goes);
+ * those rare texts take the per-character foldWithMap instead.
+ */
+function foldWithSpans(text: string): SpanMap | null {
+  const parts: string[] = [];
+  const map: SpanMap = { folded: '', foldedStarts: [], foldedEnds: [], starts: [], ends: [] };
+  let last = 0;
+  let length = 0;
+  SPAN_RE.lastIndex = 0;
+  for (let m = SPAN_RE.exec(text); m !== null; m = SPAN_RE.exec(text)) {
+    const at = m.index;
+    const span = m[0];
+    if (at > last) {
+      parts.push(text.slice(last, at));
+      length += at - last;
+    }
+    const c = span.charCodeAt(0);
+    let folded: string;
+    if (c !== 0xfeff && isWhitespace(c)) {
+      folded = ' ';
+    } else {
+      folded = foldCodePoint(span);
+      for (let k = 0; k < folded.length; k++) if (isWhitespace(folded.charCodeAt(k))) return null;
+    }
+    parts.push(folded);
+    map.foldedStarts.push(length);
+    length += folded.length;
+    map.foldedEnds.push(length);
+    map.starts.push(at);
+    map.ends.push(at + span.length);
+    last = at + span.length;
+  }
+  if (last < text.length) {
+    parts.push(text.slice(last));
+    length += text.length - last;
+  }
+  // Folded spans are already lowercase, so this only lowercases the ASCII runs.
+  map.folded = parts.join('').toLowerCase();
+  if (map.folded.length !== length || map.folded.includes('  ')) return null;
+  return map;
+}
+
+/** Index of the last span starting at or before folded unit u, or -1. */
+function spanBefore(foldedStarts: readonly number[], u: number): number {
+  let lo = 0;
+  let hi = foldedStarts.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    if (foldedStarts[mid] <= u) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return hi;
+}
+
+/** Original index of the character behind folded unit u, given j = spanBefore(u). */
+function sourceIndex(map: SpanMap, j: number, u: number): number {
+  if (j < 0) return u;
+  return u < map.foldedEnds[j] ? map.starts[j] : map.ends[j] + (u - map.foldedEnds[j]);
+}
+
+/** The original range of the folded range [p, p + len), with the same rules as findMatchesSlow. */
+function sourceRange(map: SpanMap, p: number, len: number): RawMatch {
+  const { foldedStarts, foldedEnds, starts, ends } = map;
+  const start = sourceIndex(map, spanBefore(foldedStarts, p), p);
+  const u = p + len - 1;
+  const j = spanBefore(foldedStarts, u);
+  let end = j >= 0 && u < foldedEnds[j] ? ends[j] : sourceIndex(map, j, u) + 1;
+  // Take in anything right after it that folded to nothing (accents, invisible characters).
+  for (let k = j + 1; k < starts.length && starts[k] === end && foldedStarts[k] === foldedEnds[k]; k++) end = ends[k];
+  return { start, end, needle: 0 };
+}
+
 /** Every (possibly overlapping) occurrence of every needle, in original-text coordinates, sorted. */
 function findMatches(text: string, needles: string[]): RawMatch[] {
   if (!text || needles.length === 0) return [];
+  const map = foldWithSpans(text);
+  if (map === null) return findMatchesSlow(text, needles);
+  const { folded } = map;
+  const matches: RawMatch[] = [];
+  needles.forEach((needle, k) => {
+    for (let p = folded.indexOf(needle); p !== -1; p = folded.indexOf(needle, p + 1)) {
+      const match = sourceRange(map, p, needle.length);
+      match.needle = k;
+      matches.push(match);
+    }
+  });
+  return matches.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+function findMatchesSlow(text: string, needles: string[]): RawMatch[] {
   // Cheap rejection with the native fold before building the position map.
   const quick = foldText(text);
   if (!needles.some((needle) => quick.includes(needle))) return [];
@@ -899,7 +1142,9 @@ function popcount(n: number): number {
 export function makeSnippet(text: string, q: ParsedQuery, maxLen = 160): HighlightSegment[] | null {
   const needles = needlesOf(q);
   if (!text || needles.length === 0) return null;
-  const flat = text.replace(WS_COLLAPSE_RE, ' ').trim();
+  // JavaScript's \s includes U+FEFF, but folding drops it as an invisible
+  // character; remove it first so "zero\uFEFFwidth" still matches "zerowidth".
+  const flat = (text.includes('\uFEFF') ? text.replace(/\uFEFF/g, '') : text).replace(WS_COLLAPSE_RE, ' ').trim();
   const matches = findMatches(flat, needles);
   if (matches.length === 0) return null;
 

@@ -94,17 +94,17 @@ function rng(seed: number): () => number {
 describe('foldText', () => {
   it('is case- and diacritic-insensitive', () => {
     expect(foldText('Café')).toBe('cafe');
-    expect(foldText('CAFÉ')).toBe('cafe');
+    expect(foldText('CAFE\u0301')).toBe('cafe');
     expect(foldText('Ångström Øre Æsir Straße Łódź')).toBe('angstrom ore aesir strasse lodz');
   });
 
   it('expands compatibility forms and collapses whitespace', () => {
-    expect(foldText('ﬁne art\t\n  ①')).toBe('fine art 1');
+    expect(foldText('ﬁne\u00a0art\t\n  ①')).toBe('fine art 1');
     expect(foldText('ＦＵＬＬ')).toBe('full');
   });
 
   it('removes invisible format characters and unifies typographic punctuation', () => {
-    expect(foldText('photo­graphy')).toBe('photography');
+    expect(foldText('photo\u00adgraphy')).toBe('photography');
     expect(foldText('it’s 1990–2000')).toBe("it's 1990-2000");
   });
 
@@ -136,7 +136,7 @@ describe('parseQuery', () => {
   });
 
   it('ignores runs of whitespace of any kind', () => {
-    const q = parseQuery('  grain \t\n  film　noir   ');
+    const q = parseQuery('  grain \t\n  film\u3000noir   ');
     expect(q.terms).toEqual(['grain', 'film', 'noir']);
   });
 
@@ -153,7 +153,7 @@ describe('parseQuery', () => {
   });
 
   it('ignores empty hashtags', () => {
-    for (const raw of ['#', '##', '# #', '#!!', '#🎞️']) {
+    for (const raw of ['#', '##', '# #', '#!!', '#🎞\ufe0f']) {
       const q = parseQuery(raw);
       expect(q.tags).toEqual([]);
       expect(q.partialTag).toBeNull();
@@ -163,7 +163,7 @@ describe('parseQuery', () => {
   });
 
   it('keeps unicode and emoji terms', () => {
-    const q = parseQuery('東京 🎞️ naïve');
+    const q = parseQuery('東京 🎞\ufe0f naïve');
     expect(q.terms).toEqual(['東京', '🎞', 'naive']);
   });
 
@@ -313,6 +313,81 @@ describe('search matching', () => {
 
   it('rejects documents built elsewhere', () => {
     expect(() => search({ size: 0 }, 'x')).toThrow(TypeError);
+  });
+});
+
+describe('search agrees with a brute-force scan', () => {
+  const WORDS = ['Grain', 'grainy', 'Café', 'cafe', 'ﬁlm', 'film-noir', 'Straße', 'ÅNGSTRÖM', 'over', 'cover', 'Ørsted', 'naïve', 'x', 'ab', 'abc', 'zebra'];
+
+  it('returns exactly the entries containing every needle and no excluded word (property test)', () => {
+    const next = rng(99);
+    const pick = () => WORDS[Math.floor(next() * WORDS.length)];
+    const sentence = (n: number) => Array.from({ length: n }, pick).join(next() < 0.2 ? '\n ' : ' ');
+    const docs = Array.from({ length: 300 }, (_, i) =>
+      doc(
+        entry({ id: `b${i}`, title: sentence(2), notes: sentence(6), credit: sentence(1), tags: [normalize(pick())], createdAt: i }),
+        next() < 0.7 ? [image({ text: sentence(30) }), image({ text: sentence(4) })] : [],
+      ),
+    );
+    const index = buildIndex(docs);
+    const fieldsOf = (d: SearchDoc) =>
+      [d.entry.title, d.entry.tags.join(' '), d.entry.notes, d.entry.credit, d.entry.link, d.images.map((im) => im.text).join('\n')].map(foldText);
+
+    let nonTrivial = 0;
+    for (let n = 0; n < 300; n++) {
+      const word = foldText(pick());
+      const start = Math.floor(next() * word.length);
+      const fragment = word.slice(start, start + 1 + Math.floor(next() * word.length));
+      const raw =
+        n % 5 === 0
+          ? `"${foldText(sentence(2))}"`
+          : n % 5 === 1
+            ? `${fragment} -${foldText(pick()).slice(0, 3)}`
+            : n % 5 === 2
+              ? `${fragment} ${foldText(pick())}`
+              : fragment;
+      const q = parseQuery(raw);
+      const needles = [...q.terms, ...q.phrases];
+      const expected = docs
+        .filter((d) => {
+          const fields = fieldsOf(d);
+          return (
+            needles.every((needle) => fields.some((f) => f.includes(needle))) &&
+            !q.excluded.some((word) => fields.some((f) => f.includes(word)))
+          );
+        })
+        .map((d) => d.entry.id)
+        .sort();
+      expect(ids(search(index, raw)).sort(), raw).toEqual(isEmptyQuery(q) ? [] : expected);
+      if (expected.length > 0 && expected.length < docs.length) nonTrivial++;
+    }
+    // Guard against a vacuous test: most queries should split the library.
+    expect(nonTrivial).toBeGreaterThan(150);
+  });
+
+  function normalize(word: string): string {
+    return foldText(word).replace(/[^a-z-]/g, '');
+  }
+});
+
+describe('search in dense non-Latin text', () => {
+  const russian = 'Съешь же ещё этих мягких французских булок, да выпей чаю. '.repeat(8);
+  const greek = 'ΟΔΟΣ ΠΡΟΣ ΤΗΝ ΑΚΡΟΠΟΛΗ, ένας δρόμος. '.repeat(10);
+  const index = buildIndex([
+    doc(entry({ id: 'ru', title: 'Шрифт' }), [image({ text: russian })]),
+    doc(entry({ id: 'el', title: 'Οδός' }), [image({ text: greek })]),
+  ]);
+
+  it('folds accents and case in Cyrillic and Greek', () => {
+    expect(ids(search(index, 'ЕЩЕ булок'))).toEqual(['ru']);
+    expect(ids(search(index, 'οδοσ'))).toEqual(['el']);
+    expect(ids(search(index, 'δρομος'))).toEqual(['el']);
+  });
+
+  it('highlights and snippets them with correct positions', () => {
+    expect(marked(highlight(russian.slice(0, 40), parseQuery('еще')))).toEqual(['ещё']);
+    const snippet = makeSnippet(greek, parseQuery('ακροπολη'), 60)!;
+    expect(marked(snippet)).toContain('ΑΚΡΟΠΟΛΗ');
   });
 });
 
@@ -494,11 +569,13 @@ describe('search result shape', () => {
     expect(search(index, '#film')[0].snippet).toBeNull();
   });
 
-  it('serialises like a plain object (snippet included)', () => {
+  it('exposes plain data and serialises the lazily built snippet', () => {
     const [r] = search(index, 'portra');
-    const copy = { ...r };
-    expect(copy.snippet?.field).toBe('notes');
-    expect(JSON.parse(JSON.stringify(r)).snippet.field).toBe('notes');
+    expect(Object.keys(r).sort()).toEqual(['entry', 'fields', 'score', 'swatches']);
+    expect(r.entry).toBe(e);
+    const json = JSON.parse(JSON.stringify(r));
+    expect(json.snippet.field).toBe('notes');
+    expect(json.entry.id).toBe('e');
     r.snippet = null;
     expect(r.snippet).toBeNull();
   });
@@ -576,8 +653,8 @@ describe('highlight', () => {
   });
 
   it('keeps decomposed accents inside the highlight', () => {
-    const text = 'Le Café Noir';
-    expect(marked(highlight(text, parseQuery('café')))).toEqual(['Café']);
+    const text = 'Le Cafe\u0301 Noir';
+    expect(marked(highlight(text, parseQuery('café')))).toEqual(['Cafe\u0301']);
     expect(joined(highlight(text, parseQuery('cafe')))).toBe(text);
   });
 
@@ -596,11 +673,11 @@ describe('highlight', () => {
   });
 
   it('handles astral characters before and inside matches', () => {
-    expect(highlight('🎞️🎞️ Kodak 𝒳 film', parseQuery('film'))).toEqual([
-      { text: '🎞️🎞️ Kodak 𝒳 ', match: false },
+    expect(highlight('🎞\ufe0f🎞\ufe0f Kodak 𝒳 film', parseQuery('film'))).toEqual([
+      { text: '🎞\ufe0f🎞\ufe0f Kodak 𝒳 ', match: false },
       { text: 'film', match: true },
     ]);
-    expect(marked(highlight('roll 🎞️ out', parseQuery('🎞')))).toEqual(['🎞️']);
+    expect(marked(highlight('roll 🎞\ufe0f out', parseQuery('🎞')))).toEqual(['🎞\ufe0f']);
     expect(marked(highlight('ＦＵＬＬ frame', parseQuery('full')))).toEqual(['ＦＵＬＬ']);
   });
 
@@ -619,7 +696,11 @@ describe('highlight', () => {
   });
 
   it('always reproduces the input exactly (property test)', () => {
-    const pool = ['a', 'B', 'é', 'é', 'ß', 'ﬁ', 'ﬃ', ' ', '\n', ' ', '­', '🎞️', '𝒳', 'Σ', 'İ', '①', '’', '-', '東', 'ǅ', '́', 'Ⅻ'];
+    const pool = [
+      'a', 'B', 'é', 'e\u0301', 'ß', 'ﬁ', 'ﬃ', ' ', '\n', '\u00a0', '\u00ad', '🎞\ufe0f', '𝒳', 'Σ', 'İ', '①', '’', '-', '東', 'ǅ', '\u0301', 'Ⅻ',
+      // Whitespace and invisible characters that fold in unusual ways.
+      '\ufeff', '\u00a0\u00a0', '\u2028', '\u3000', '\r\n', '¨', '¯', '한', '\ud800',
+    ];
     const queries = ['a', 'e', 'ss', 'fi', 'ffi', 'b a', 'σ', 'i', '1', "'", 'ae', 'xii', 'dz'].map((t) => parseQuery(`"${t}"`));
     const next = rng(42);
     for (let n = 0; n < 2000; n++) {
@@ -629,6 +710,7 @@ describe('highlight', () => {
       const q = queries[n % queries.length];
       const segs = highlight(text, q);
       expect(joined(segs)).toBe(text);
+      expect(segs.some((s) => s.match)).toBe(foldText(text).includes(q.phrases[0]));
       // Every highlighted run, folded, contains the needle.
       for (const s of segs) if (s.match) expect(foldText(s.text)).toContain(q.phrases[0]);
       // Segments alternate and are never empty (except the single empty-text case).
@@ -758,6 +840,126 @@ describe('swatchMatches', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Review regressions
+// ---------------------------------------------------------------------------
+
+describe('review regressions', () => {
+  it('finds a word-initial colour word after many mid-word hits of the same letters', () => {
+    // 'e' occurs mid-word in every one of these names and families, so a capped
+    // scan of the colour words used to give up before reaching "emerald".
+    const names = ['steel', 'beige', 'grey', 'teal', 'sage', 'cerise', 'celeste', 'linen', 'pewter', 'bone', 'olive', 'lime', 'mauve', 'sienna'];
+    const palette = names.map((name, i) => swatch(`#${(0x101010 * (i + 1)).toString(16).padStart(6, '0')}`, name, 'blue', 0.5 - i * 0.01));
+    palette.push(swatch('#50c878', 'emerald', 'green', 0.01));
+    const idx = buildIndex([doc(entry({ id: 'gems', title: 'X' }), [image({ palette })])]);
+    const [result] = search(idx, 'e');
+    expect(result?.entry.id).toBe('gems');
+    expect(result.fields).toEqual(['colour']);
+    expect(result.swatches.map((s) => s.name)).toEqual(['emerald']);
+  });
+
+  it('treats a hex-like hashtag as a tag when a known tag matches it ignoring accents', () => {
+    const known = new Set(['accédé', 'décade']);
+    expect(parseQuery('#accede ', known).tags).toEqual(['accede']);
+    expect(parseQuery('#accede ', known).colours).toEqual([]);
+    expect(parseQuery('#decade', known).tags).toEqual(['decade']);
+    // While typing, a prefix of an accented known tag stays a tag too.
+    expect(parseQuery('#acc', known).partialTag).toBe('acc');
+    expect(parseQuery('#acc ', known).colours.map((c) => c.hex)).toEqual(['#aacccc']);
+
+    const idx = buildIndex([
+      doc(entry({ id: 'tagged', tags: ['accédé'] })),
+      doc(entry({ id: 'colour' }), [image({ palette: [swatch('#accede', 'powder', 'blue', 0.6)] })]),
+    ]);
+    expect(ids(search(idx, '#accede '))).toEqual(['tagged']);
+  });
+
+  it('ignores one-character exclusions, which are usually a word still being typed', () => {
+    const index = buildIndex([
+      doc(entry({ id: 'digital', title: 'Grain, digital' })),
+      doc(entry({ id: 'film', title: 'Grain on film' })),
+    ]);
+    expect(parseQuery('grain -d').excluded).toEqual([]);
+    expect(ids(search(index, 'grain -d')).sort()).toEqual(['digital', 'film']);
+    expect(ids(search(index, 'grain -di'))).toEqual(['film']);
+    expect(parseQuery('grain -"d').excluded).toEqual([]);
+    expect(parseQuery('grain -🎞️').excluded).toEqual([]);
+    expect(parseQuery('grain -🎞x').excluded).toEqual(['🎞x']);
+    expect(parseQuery('-#film').excluded).toEqual(['film']);
+  });
+
+  it('builds a snippet when an invisible U+FEFF sits inside the matched word', () => {
+    const notes = 'Pasted from the web: zero﻿width joiners everywhere.';
+    const idx = buildIndex([doc(entry({ id: 'bom', title: 'Clipping', notes }))]);
+    const [result] = search(idx, 'zerowidth');
+    expect(result?.entry.id).toBe('bom');
+    expect(result.snippet?.field).toBe('notes');
+    expect(marked(result.snippet!.segments).map((s) => s.replace(/﻿/g, ''))).toEqual(['zerowidth']);
+    expect(marked(highlight(notes, parseQuery('zerowidth')))).toEqual(['zero﻿width']);
+  });
+
+  it('highlights text whose folding introduces or removes spaces', () => {
+    expect(highlight('x ¨ y', parseQuery('"x y"'))).toEqual([{ text: 'x ¨ y', match: true }]);
+    expect(highlight('a ́ b!', parseQuery('"a b"'))).toEqual([
+      { text: 'a ́ b', match: true },
+      { text: '!', match: false },
+    ]);
+    expect(highlight('one\r\n\r\ntwo three', parseQuery('"one two three"'))).toEqual([
+      { text: 'one\r\n\r\ntwo three', match: true },
+    ]);
+  });
+
+  it('folds identically to a straightforward whole-string reference (property test)', () => {
+    const specials: Record<string, string> = {
+      ß: 'ss', æ: 'ae', œ: 'oe', ø: 'o', ł: 'l', đ: 'd', ð: 'd', þ: 'th', ı: 'i', ς: 'σ',
+      '‘': "'", '’': "'", '‛': "'", '“': '"', '”': '"', '‟': '"',
+      '‐': '-', '‑': '-', '‒': '-', '–': '-', '—': '-', '―': '-', '−': '-',
+    };
+    const reference = (s: string) =>
+      s
+        .normalize('NFKD')
+        .toLowerCase()
+        .replace(/[\p{M}\p{Cf}]/gu, '')
+        .replace(/[ßæœøłđðþıς‘’‛“”‟‐-―−]/g, (c) => specials[c])
+        .replace(/\s+/g, ' ');
+    const pool = ['é', 'é', '́', 'ẞ', 'ﬁ', 'ΟΔΟΣ', 'Σ', 'İ', 'ı', ' ', '﻿', '­', '¨', '’', '—', '🎞️', '①', 'ǅ', 'Ⅻ', '한', 'ガ', 'Ø', 'Æ', ' ', 'Ж', 'ё', '\ud800', '\n'];
+    const next = rng(11);
+    for (let n = 0; n < 5000; n++) {
+      // Alternate between mostly-ASCII and dense non-ASCII text: foldText takes a different path for each.
+      const dense = n % 2 === 0;
+      let s = '';
+      const len = Math.floor(next() * 40);
+      for (let k = 0; k < len; k++) {
+        s += dense || next() < 0.1 ? pool[Math.floor(next() * pool.length)] : 'abcXYZ  .'[Math.floor(next() * 9)];
+      }
+      expect(foldText(s), JSON.stringify(s)).toBe(reference(s));
+    }
+  });
+
+  it('agrees between search, highlight and makeSnippet on tricky text (property test)', () => {
+    const pool = ['a', 'B', 'z', ' ', '  ', '\n', 'é', 'é', '́', 'ß', 'ﬁ', 'Σ', 'İ', ' ', '﻿', '­', '‍', '¨', '’', '—', '🎞️', '𝒳', '①', 'Ⅻ', '한', 'ガ', '　', 'Ж', 'x', '.'];
+    const next = rng(23);
+    let found = 0;
+    for (let n = 0; n < 1500; n++) {
+      let notes = '';
+      const len = 1 + Math.floor(next() * 30);
+      for (let k = 0; k < len; k++) notes += pool[Math.floor(next() * pool.length)];
+      const folded = foldText(notes);
+      const at = Math.floor(next() * folded.length);
+      const needle = folded.slice(at, at + 1 + Math.floor(next() * 4)).trim().replace(/"/g, '');
+      if (!needle || /\s/.test(needle)) continue;
+      const raw = `"${needle}"`;
+      const q = parseQuery(raw);
+      const hit = search(buildIndex([doc(entry({ id: 'p', notes }))]), raw).length > 0;
+      expect(hit, `${JSON.stringify(notes)} ${raw}`).toBe(true);
+      expect(highlight(notes, q).some((s) => s.match), `${JSON.stringify(notes)} ${raw}`).toBe(true);
+      expect(makeSnippet(notes, q), `${JSON.stringify(notes)} ${raw}`).not.toBeNull();
+      found++;
+    }
+    expect(found).toBeGreaterThan(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Performance
 // ---------------------------------------------------------------------------
 
@@ -819,8 +1021,15 @@ describe('performance', () => {
     for (const q of queries) search(index, q); // warm up
     const timings = Object.fromEntries(queries.map((q) => [q, timeIt(() => search(index, q), 7)]));
 
+    // The UI may read every result's snippet (e.g. to size cards), and "cafe" only
+    // occurs in the OCR text here, so all 5,000 results need one built.
+    const broad = search(index, 'cafe');
+    const s0 = performance.now();
+    const withSnippet = broad.filter((r) => r.snippet !== null).length;
+    const snippetMs = performance.now() - s0;
+
     console.info(
-      `[search perf] build ${buildMs.toFixed(1)} ms, cached rebuild ${rebuildMs.toFixed(1)} ms, search medians:`,
+      `[search perf] build ${buildMs.toFixed(1)} ms, cached rebuild ${rebuildMs.toFixed(1)} ms, ${withSnippet} snippets ${snippetMs.toFixed(1)} ms, search medians:`,
       Object.entries(timings)
         .map(([q, ms]) => `${q}=${ms.toFixed(1)}ms`)
         .join(', '),
@@ -833,7 +1042,9 @@ describe('performance', () => {
     expect(buildMs).toBeLessThan(5000);
     expect(rebuildMs).toBeLessThan(buildMs);
     expect(search(index, 'zebra')).toEqual([]);
-    expect(search(index, 'cafe').length).toBe(5000);
+    expect(broad.length).toBe(5000);
+    expect(withSnippet).toBe(5000);
+    expect(snippetMs).toBeLessThan(750);
   });
 });
 

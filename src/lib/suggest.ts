@@ -166,13 +166,29 @@ function fold(lower: string): string {
 }
 
 /** Light English plural folding: "posters" → "poster", "stories" → "story", "sketches" → "sketch". */
-function stem(key: string): string {
+function singular(key: string): string {
   const n = key.length;
   if (n <= 3 || key.charCodeAt(n - 1) !== 115 /* s */ || !LOWER_LATIN.test(key)) return key;
   if (n > 4 && key.endsWith('ies')) return key.slice(0, -3) + 'y';
   if (/(?:ss|us|is)$/.test(key)) return key; // "glass", "bus", "analysis"
   if (n > 4 && /(?:ss|sh|ch|x|z)es$/.test(key)) return key.slice(0, -2); // "glasses", "brushes", "boxes"
   return key.slice(0, -1);
+}
+
+/**
+ * Plural-insensitive matching key. The singular cannot always be read off the
+ * spelling ("stories" ← story but "movies" ← movie; "boxes" ← box but
+ * "glazes" ← glaze), so both forms are folded onto one key instead: a final
+ * "ie" becomes "y" and a silent "e" after ch, sh, x, z or o is dropped
+ * (movie, movies → "movy"; glaze, glazes → "glaz"; hero, heroes → "hero").
+ * Keys are only compared, never shown.
+ */
+function stem(key: string): string {
+  const base = singular(key);
+  if (base.length <= 3 || !LOWER_LATIN.test(base)) return base;
+  if (base.endsWith('ie')) return base.slice(0, -2) + 'y';
+  if (/(?:ch|sh|[xzo])e$/.test(base)) return base.slice(0, -1);
+  return base;
 }
 
 interface WordInfo {
@@ -231,8 +247,10 @@ function hasGarbageShape(key: string): boolean {
       return true;
     }
   }
+  // One vowel in seven letters is still English ("stretch", "scripts",
+  // "strength"); the consonant-run check above already catches most debris.
   const ratio = vowels / key.length;
-  return ratio < 0.15 || ratio > 0.8;
+  return ratio < 0.1 || ratio > 0.8;
 }
 
 const HAS_DIGIT = /\p{N}/u;
@@ -243,13 +261,15 @@ function analyseWord(raw: string): WordInfo {
   const surface = nonAscii ? raw.toLowerCase().normalize('NFKC') : raw.toLowerCase();
   const key = fold(surface);
   const stemmed = stem(key);
+  // Word lists hold real words, so plurals are checked by their singular.
+  const base = singular(key);
   const keyword =
     key.length >= 4 &&
     key.length <= 24 &&
     !HAS_DIGIT.test(key) &&
     !STOPWORDS.has(key) &&
-    !STOPWORDS.has(stemmed) &&
-    !PLATFORM_WORDS.has(stemmed) &&
+    !STOPWORDS.has(base) &&
+    !PLATFORM_WORDS.has(base) &&
     !hasGarbageShape(key) &&
     !hasNoisyCase(raw);
   return { surface, key, stem: stemmed, keyword };
@@ -280,7 +300,8 @@ const WORD_RE = /[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu;
 // often glues sentences together as "end.It".
 const URL_RE =
   /\b(?:https?:\/\/|www\.)\S+|\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|app|xyz|art|design|studio|uk|de|fr|nl|tv|dev|info|blog)\b(?:\/\S*)?/giu;
-const HASHTAG_RE = /(?<![\p{L}\p{N}_&/])#([\p{L}\p{N}][\p{L}\p{M}\p{N}_]*)/gu;
+// Inner hyphens belong to the tag ("#film-grain"), as in the app's own tags.
+const HASHTAG_RE = /(?<![\p{L}\p{N}_&/])#([\p{L}\p{N}][\p{L}\p{M}\p{N}_]*(?:-[\p{L}\p{M}\p{N}_]+)*)/gu;
 const HANDLE_RE = /(?<![\p{L}\p{N}_.])@[\p{L}\p{N}_.]+/gu;
 
 function spans(text: string, re: RegExp): [number, number][] {
@@ -299,12 +320,12 @@ class SpanCursor {
   }
 }
 
-/** Whitespace and dashes join words into phrases; any other character breaks them. */
+/** Whitespace, dashes and underscores join words into phrases; anything else breaks them. */
 function gapJoins(text: string, from: number, to: number): boolean {
   for (let i = from; i < to; i++) {
     const c = text.charCodeAt(i);
     const joins =
-      c === 32 || c === 10 || c === 13 || c === 9 || c === 45 || c === 160 || (c >= 0x2010 && c <= 0x2014);
+      c === 32 || c === 10 || c === 13 || c === 9 || c === 45 || c === 95 || c === 160 || (c >= 0x2010 && c <= 0x2014);
     if (!joins) return false;
   }
   return true;
@@ -316,9 +337,16 @@ interface Scan {
   textTokens: number;
 }
 
+/** A word hyphenated across a line break in a scanned page: "solu-⏎tion". */
+const LINE_BREAK_HYPHEN_RE = /(\p{Ll})[-\u00ad\u2010][ \t]*\r?\n[ \t]*(?=\p{Ll})/gu;
+
 function scanField(source: string, field: Field, into: Scan): void {
   if (!source) return;
-  const text = source.normalize('NFC');
+  let text = source.normalize('NFC');
+  // OCR keeps a page's end-of-line hyphenation; rejoin it so "solu-⏎tion" is
+  // read as "solution" rather than two fragments. A capital after the break
+  // ("Müller-⏎Brockmann") marks a real compound and is left alone.
+  if (field === TEXT) text = text.replace(LINE_BREAK_HYPHEN_RE, '$1');
   const urls = new SpanCursor(spans(text, URL_RE));
   const handles = new SpanCursor(spans(text, HANDLE_RE));
   const hashtagSpans: [number, number][] = [];
@@ -377,11 +405,14 @@ function shapeOf(raw: string): TagShape {
   if (!shape) {
     let tag = normalizeTag(raw);
     if (/^\p{N}+$/u.test(tag)) tag = ''; // "#1" is a list marker, not a tag
-    const parts = tag
+    const words = tag
       .split(/[-_]+/)
       .filter(Boolean)
-      .map((p) => stem(fold(p)));
-    shape = { tag, parts, identity: parts.join('-'), compact: stem(parts.join('')) };
+      .map((p) => fold(p));
+    const parts = words.map(stem);
+    // The run-together form stems the whole word, as a token "movieposter"
+    // would be, not each part ("movie-poster" → "movieposter", not "movyposter").
+    shape = { tag, parts, identity: parts.join('-'), compact: stem(words.join('')) };
     if (shapeCache.size >= SHAPE_CACHE_LIMIT) shapeCache.clear();
     shapeCache.set(raw, shape);
   }
@@ -451,27 +482,40 @@ function indexLibrary(library: ReadonlyMap<string, number>): LibraryIndex {
   return index;
 }
 
+/** A one-word tag that is also a stopword ("new", "work"); checked by its singular, like keywords. */
+function isCommonWord(shape: TagShape): boolean {
+  return STOPWORDS.has(shape.parts[0]) || STOPWORDS.has(singular(fold(shape.tag)));
+}
+
 function fieldScore(counts: readonly number[], weights: readonly number[] = FIELD_WEIGHTS): number {
   let score = 0;
   for (let f = 0; f < 3; f++) if (counts[f] > 0) score += weights[f] * (1 + Math.log(counts[f]));
   return score;
 }
 
+/**
+ * How established a library tag is. Deliberately gentle: where a word was
+ * found should matter more than how often the tag has been used, so this
+ * mostly separates tags with similar evidence.
+ */
 function popularity(count: number | undefined): number {
-  return Math.log2(1 + Math.max(0, count || 0));
+  return 0.5 * Math.log2(1 + Math.max(0, count || 0));
 }
 
 /** Score for a tag the library already has, found by a non-textual signal (domain, colour). */
 function knownTagScore(library: ReadonlyMap<string, number>, tag: string): number {
-  return LIBRARY_TIER + FIELD_WEIGHTS[NOTES] + 1.5 * popularity(library.get(tag));
+  return LIBRARY_TIER + FIELD_WEIGHTS[NOTES] + popularity(library.get(tag));
 }
 
 /* ------------------------------------------------------------------ */
 /* Candidates                                                          */
 /* ------------------------------------------------------------------ */
 
+/** Position used to order equal scores: candidates found earlier read first. */
+const NO_POSITION = Number.MAX_SAFE_INTEGER;
+
 class Candidates {
-  private readonly best = new Map<string, { tag: string; score: number }>();
+  private readonly best = new Map<string, { tag: string; score: number; position: number }>();
   private readonly excludedTags = new Set<string>();
   private readonly excludedIdentities = new Set<string>();
 
@@ -485,22 +529,29 @@ class Candidates {
     }
   }
 
-  add(raw: string, score: number): void {
+  add(raw: string, score: number, position = NO_POSITION): void {
     const { tag, identity } = shapeOf(raw);
     if (!tag || !identity || this.excludedTags.has(tag) || this.excludedIdentities.has(identity)) return;
+    const candidate = { tag, score, position };
     const current = this.best.get(identity);
     // One suggestion per identity: "poster" and "posters" never both appear.
-    if (!current || score > current.score || (score === current.score && tag < current.tag)) {
-      this.best.set(identity, { tag, score });
-    }
+    if (!current || compareCandidates(candidate, current) < 0) this.best.set(identity, candidate);
   }
 
   ranked(limit: number): string[] {
     return [...this.best.values()]
-      .sort((a, b) => b.score - a.score || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0))
+      .sort(compareCandidates)
       .slice(0, limit)
       .map((c) => c.tag);
   }
+}
+
+/** Higher score first, then earlier in the text, then alphabetical: a total, deterministic order. */
+function compareCandidates(
+  a: { tag: string; score: number; position: number },
+  b: { tag: string; score: number; position: number },
+): number {
+  return b.score - a.score || a.position - b.position || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0);
 }
 
 /**
@@ -551,12 +602,16 @@ function matchLibraryTags(
 ): Uint8Array {
   const covered = new Uint8Array(tokens.length);
   const hits = new Map<TagShape, FieldCounts>();
+  const firstHit = new Map<TagShape, number>();
   const record = (shape: TagShape, start: number, length: number) => {
     const field = tokens[start].field;
     // A one-word tag that is also a common word ("new", "work") only counts in the title.
-    if (length === 1 && shape.parts.length === 1 && field !== TITLE && STOPWORDS.has(shape.parts[0])) return;
+    if (length === 1 && shape.parts.length === 1 && field !== TITLE && isCommonWord(shape)) return;
     let counts = hits.get(shape);
-    if (!counts) hits.set(shape, (counts = [0, 0, 0]));
+    if (!counts) {
+      hits.set(shape, (counts = [0, 0, 0]));
+      firstHit.set(shape, start);
+    }
     counts[field]++;
     covered.fill(1, start, start + length);
   };
@@ -580,21 +635,25 @@ function matchLibraryTags(
     let compact = token.key;
     for (let span = 2; span <= 3 && joined(tokens, i + span - 2); span++) {
       compact += tokens[i + span - 1].key;
-      if (compact.length > index.longestSingle + 1) break; // +1: a trailing plural "s"
+      // Stems are up to two letters shorter than the words ("boxes" → "box", "berries" → "berry").
+      if (compact.length > index.longestSingle + 2) break;
       const matches = index.single.get(stem(compact));
       if (matches) for (const shape of matches) if (shape.parts.length === 1) record(shape, i, span);
     }
   }
 
   for (const [shape, counts] of hits) {
-    out.add(shape.tag, LIBRARY_TIER + fieldScore(counts) + 1.5 * popularity(library.get(shape.tag)));
+    out.add(shape.tag, LIBRARY_TIER + fieldScore(counts) + popularity(library.get(shape.tag)), firstHit.get(shape));
   }
   return covered;
 }
 
 interface KeywordStats {
   counts: FieldCounts;
-  surfaces: Map<string, number>;
+  /** First spelling seen; most words only ever have this one. */
+  surface: string;
+  /** Spelling counts, created only once a second spelling turns up. */
+  surfaces: Map<string, number> | null;
   firstSeen: number;
 }
 
@@ -602,16 +661,26 @@ interface PhraseStats extends KeywordStats {
   parts: [string, string];
 }
 
+function newStats(surface: string, firstSeen: number): KeywordStats {
+  return { counts: [0, 0, 0], surface, surfaces: null, firstSeen };
+}
+
 function tally(stats: KeywordStats, surface: string, field: Field): void {
+  const seen = stats.counts[0] + stats.counts[1] + stats.counts[2];
   stats.counts[field]++;
+  if (!stats.surfaces) {
+    if (surface === stats.surface) return;
+    stats.surfaces = new Map([[stats.surface, seen]]);
+  }
   stats.surfaces.set(surface, (stats.surfaces.get(surface) ?? 0) + 1);
 }
 
 /** The most frequent way a word was written; ties go to the shorter, then alphabetical. */
-function preferredSurface(surfaces: Map<string, number>): string {
+function preferredSurface(stats: KeywordStats): string {
+  if (!stats.surfaces) return stats.surface;
   let best = '';
   let bestCount = -1;
-  for (const [surface, count] of surfaces) {
+  for (const [surface, count] of stats.surfaces) {
     if (
       count > bestCount ||
       (count === bestCount && (surface.length < best.length || (surface.length === best.length && surface < best)))
@@ -633,25 +702,23 @@ function collectKeywords(scan: Scan, covered: Uint8Array, index: LibraryIndex | 
     const t = tokens[i];
     if (covered[i] || !isKeyword(t)) continue;
     let word = unigrams.get(t.stem);
-    if (!word) unigrams.set(t.stem, (word = { counts: [0, 0, 0], surfaces: new Map(), firstSeen: i }));
+    if (!word) unigrams.set(t.stem, (word = newStats(t.surface, i)));
     tally(word, t.surface, t.field);
 
     if (!joined(tokens, i)) continue;
     const next = tokens[i + 1];
     if (covered[i + 1] || !isKeyword(next) || next.stem === t.stem) continue;
     const key = `${t.stem} ${next.stem}`;
+    const surface = `${t.surface}-${next.surface}`;
     let phrase = bigrams.get(key);
-    if (!phrase) {
-      phrase = { counts: [0, 0, 0], surfaces: new Map(), firstSeen: i, parts: [t.stem, next.stem] };
-      bigrams.set(key, phrase);
-    }
-    tally(phrase, `${t.surface}-${next.surface}`, t.field);
+    if (!phrase) bigrams.set(key, (phrase = { ...newStats(surface, i), parts: [t.stem, next.stem] }));
+    tally(phrase, surface, t.field);
   }
   if (unigrams.size === 0) return;
 
   // Words that already appear inside the user's tags ("film" in film-grain and
   // film-stock) are part of their vocabulary and get a nudge.
-  const vocabularyBonus = (key: string) => (index ? 2 * popularity(index.vocabulary.get(key)) : 0);
+  const vocabularyBonus = (key: string) => (index ? 2 * Math.log2(1 + (index.vocabulary.get(key) ?? 0)) : 0);
 
   // Repeated phrases win over their words: "type design" twice suggests
   // type-design, and those occurrences stop counting towards "type" and "design".
@@ -670,7 +737,7 @@ function collectKeywords(scan: Scan, covered: Uint8Array, index: LibraryIndex | 
     if (usedWords.has(a) || usedWords.has(b)) continue;
     usedWords.add(a).add(b);
     accepted++;
-    out.add(preferredSurface(phrase.surfaces), score);
+    out.add(preferredSurface(phrase), score, phrase.firstSeen);
     for (const part of phrase.parts) {
       const word = unigrams.get(part)!;
       for (let f = 0; f < 3; f++) word.counts[f] = Math.max(0, word.counts[f] - phrase.counts[f]);
@@ -682,7 +749,7 @@ function collectKeywords(scan: Scan, covered: Uint8Array, index: LibraryIndex | 
   for (const [key, stats] of unigrams) {
     const [title, notes, text] = stats.counts;
     if (title === 0 && notes === 0 && text < minTextOnly) continue;
-    out.add(preferredSurface(stats.surfaces), fieldScore(stats.counts) + vocabularyBonus(key));
+    out.add(preferredSurface(stats), fieldScore(stats.counts) + vocabularyBonus(key), stats.firstSeen);
   }
 }
 
@@ -760,7 +827,11 @@ function collectColour(
       dominantShare = share;
     }
   }
-  if (dominant && dominantShare >= FAMILY_DOMINANCE) {
+  // Swatch weights are shares of the whole image and a palette need not cover
+  // all of it (minor colours and specks are left out), so dominance is judged
+  // against the image rather than renormalised over the listed swatches.
+  // Weights that over-sum (bad data) are scaled down to the image.
+  if (dominant && dominantShare * Math.min(total, 1) >= FAMILY_DOMINANCE) {
     suggest(dominant);
     return;
   }

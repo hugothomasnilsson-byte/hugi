@@ -25,8 +25,8 @@ export function EntryGrid({ entries }: { entries: Entry[] }) {
         return {
           key: e.id,
           ratio: cover ? clampRatio(cover.width / cover.height) : null,
-          extra: cardExtra(e),
-          node: <EntryCard entry={e} cover={cover} imageCount={e.imageIds.length} />,
+          extra: () => cardExtra(e),
+          render: () => <EntryCard entry={e} cover={cover} imageCount={e.imageIds.length} />,
         };
       })}
     />

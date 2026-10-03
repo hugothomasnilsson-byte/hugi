@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
-interface Item {
+export interface MasonryItem {
   key: string;
   /** width / height of the visual part, or null for text-only cards. */
   ratio: number | null;
-  /** Extra height below the visual, estimated in px (caption, snippet). */
-  extra: number;
-  node: ReactNode;
+  /** Estimated height below the visual in px (caption, snippet). Called only for rendered items. */
+  extra: () => number;
+  /** Called only for items within the rendered page, so long result lists stay cheap. */
+  render: () => ReactNode;
 }
 
 function columnsFor(width: number) {
@@ -24,7 +25,7 @@ const PAGE = 40;
  * using their known aspect ratios, so reading order stays newest-first and
  * nothing reflows when images load.
  */
-export function Masonry({ items, gap }: { items: Item[]; gap?: number }) {
+export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -64,8 +65,12 @@ export function Masonry({ items, gap }: { items: Item[]; gap?: number }) {
     let shortest = 0;
     for (let c = 1; c < cols; c++) if (heights[c] < heights[shortest] - 1) shortest = c;
     const visual = item.ratio ? colW / item.ratio : colW * 0.62;
-    heights[shortest] += visual + item.extra + g;
-    columns[shortest].push(<div key={item.key} className="masonry__cell">{item.node}</div>);
+    heights[shortest] += visual + item.extra() + g;
+    columns[shortest].push(
+      <div key={item.key} className="masonry__cell">
+        {item.render()}
+      </div>,
+    );
   }
 
   return (

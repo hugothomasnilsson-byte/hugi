@@ -17,14 +17,36 @@ function isTyping(target: EventTarget | null) {
   return !!el?.closest?.('input, textarea, select, [contenteditable="true"]');
 }
 
+/**
+ * Focuses the search field, navigating home first if needed. iOS only opens the
+ * keyboard for focus() inside the tap itself, so a stand-in input takes focus
+ * synchronously and hands it to the real field once the home view has mounted.
+ */
 function focusSearch() {
-  if (location.hash.replace(/\?.*/, '') !== '#/' && location.hash !== '') navigate(href.home());
-  // Wait a frame for the search view to mount.
-  requestAnimationFrame(() => {
+  const existing = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
+  if (existing) {
+    existing.focus();
+    existing.select();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  const standIn = document.createElement('input');
+  standIn.setAttribute('aria-hidden', 'true');
+  standIn.tabIndex = -1;
+  standIn.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;';
+  document.body.append(standIn);
+  standIn.focus();
+  navigate(href.home());
+  let tries = 0;
+  const handOff = () => {
     const el = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
-    el?.focus();
-    el?.select();
-  });
+    if (el) {
+      el.focus();
+      standIn.remove();
+    } else if (tries++ < 60) requestAnimationFrame(handOff);
+    else standIn.remove();
+  };
+  requestAnimationFrame(handOff);
 }
 
 const URL_RE = /^https?:\/\/\S+$/i;

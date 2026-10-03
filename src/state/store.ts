@@ -125,7 +125,7 @@ export async function initStore() {
     // Resume analysis interrupted by a reload or crash.
     for (const meta of images) {
       if (meta.ocrStatus === 'pending' || meta.ocrStatus === 'running') {
-        void db.getImageBlobs(meta.id).then((b) => b && analyzeImage(meta.id, b.full));
+        void db.getImageBlobs(meta.id).then((b) => b && analyzeImage(meta.id, b.full, b.thumb));
       }
     }
   } catch (err) {
@@ -160,13 +160,17 @@ async function applyToSavedImage(id: ID, patch: Partial<Pick<ImageMeta, 'palette
   await db.saveImageMeta(next);
 }
 
-export function analyzeImage(id: ID, blob: Blob) {
+/**
+ * Extracts the palette and reads the text of an image. The palette is taken
+ * from the thumbnail when available, so phones don't decode the full image twice.
+ */
+export function analyzeImage(id: ID, blob: Blob, thumb?: Blob) {
   cancelled.delete(id);
   setAnalysis(id, { status: 'pending', progress: 0 });
 
   void (async () => {
     try {
-      const data = await loadImageData(blob, 200);
+      const data = await loadImageData(thumb ?? blob, 200);
       const palette = extractPalette(data, 5);
       setAnalysis(id, { palette });
       await applyToSavedImage(id, { palette });
@@ -204,7 +208,7 @@ export function forgetAnalysis(ids: ID[]) {
 
 export async function retryOcr(id: ID) {
   const blobs = await db.getImageBlobs(id);
-  if (blobs) analyzeImage(id, blobs.full);
+  if (blobs) analyzeImage(id, blobs.full, blobs.thumb);
 }
 
 /* ------------------------------------------------------------------ */
@@ -369,7 +373,7 @@ export async function reloadStore() {
   });
   for (const meta of images) {
     if (meta.ocrStatus === 'pending' || meta.ocrStatus === 'running') {
-      void db.getImageBlobs(meta.id).then((b) => b && analyzeImage(meta.id, b.full));
+      void db.getImageBlobs(meta.id).then((b) => b && analyzeImage(meta.id, b.full, b.thumb));
     }
   }
 }

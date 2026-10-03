@@ -75,7 +75,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
               img.id === id ? { ...img, status: 'ready', prepared, previewUrl, ratio: prepared.width / prepared.height } : img,
             ),
           );
-          analyzeImage(id, prepared.full);
+          analyzeImage(id, prepared.full, prepared.thumb);
         })
         .catch((err: Error) => {
           setImages((prev) => prev.map((img) => (img.id === id ? { ...img, status: 'error', error: err.message } : img)));

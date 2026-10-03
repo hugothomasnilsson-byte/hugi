@@ -30,7 +30,7 @@ export default defineConfig({
       workbox: {
         // Precache everything, including the OCR engine and language data,
         // so the installed app never needs the network.
-        globPatterns: ['**/*.{js,css,html,svg,png,woff,woff2,wasm,gz,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm,gz,webmanifest}'],
         maximumFileSizeToCacheInBytes: 20 * 1024 * 1024,
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,

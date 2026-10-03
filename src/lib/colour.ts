@@ -392,10 +392,14 @@ function mergeSimilar(clusters: Cluster[], threshold: number): Cluster[] {
   return items.filter((_, i) => alive[i]);
 }
 
+function packRgb(rgb: Rgb): number {
+  return (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+}
+
 function toSwatches(clusters: Cluster[], total: number, count: number): Swatch[] {
   return clusters
     .map((c) => ({ rgb: c.rgb.map(channel) as Rgb, weight: total > 0 ? c.weight / total : 0 }))
-    .sort((a, b) => b.weight - a.weight || rgbToHex(a.rgb).localeCompare(rgbToHex(b.rgb)))
+    .sort((a, b) => b.weight - a.weight || packRgb(a.rgb) - packRgb(b.rgb))
     .slice(0, Math.max(0, Math.floor(count)))
     .map(({ rgb, weight }) => ({
       hex: rgbToHex(rgb),
@@ -412,6 +416,8 @@ const BIN_COUNT = 1 << (3 * BIN_BITS);
 const MIN_SHARE = 0.004;
 /** Upper bound on pixels visited; larger inputs are sampled on a fixed stride. */
 const MAX_SAMPLES = 1 << 18;
+/** Upper bound on k-means clusters, whatever `count` asks for. */
+const MAX_CLUSTERS = 64;
 
 /**
  * Dominant colours of an image.
@@ -431,7 +437,7 @@ const MAX_SAMPLES = 1 << 18;
 export function extractPalette(img: PixelData, count = 5): Swatch[] {
   const { data } = img;
   const pixels = Math.min(Math.max(0, img.width * img.height) || 0, data.length >> 2);
-  if (pixels === 0 || count < 1) return [];
+  if (pixels === 0 || !(count >= 1)) return [];
 
   const weight = new Float64Array(BIN_COUNT);
   const sumR = new Float64Array(BIN_COUNT);
@@ -472,7 +478,8 @@ export function extractPalette(img: PixelData, count = 5): Swatch[] {
     k++;
   }
 
-  const k = Math.min(n, Math.floor(count) + 4);
+  // Capped so an absurd `count` cannot make seeding and Lloyd quadratic in the bins.
+  const k = Math.min(n, Math.floor(count) + 4, MAX_CLUSTERS);
   const centroids = seedCentroids(w, lab, n, k);
   const assignment = lloyd(w, lab, n, centroids);
 
@@ -586,7 +593,7 @@ function lloyd(w: Float64Array, lab: Float64Array, n: number, centroids: Float64
  */
 export function mergePalettes(palettes: Swatch[][], count = 6): Swatch[] {
   const nonEmpty = palettes.filter((p) => Array.isArray(p) && p.length > 0);
-  if (nonEmpty.length === 0 || count < 1) return [];
+  if (nonEmpty.length === 0 || !(count >= 1)) return [];
 
   const clusters: Cluster[] = [];
   for (const palette of nonEmpty) {
@@ -595,7 +602,7 @@ export function mergePalettes(palettes: Swatch[][], count = 6): Swatch[] {
       const rgb = validRgb(swatch);
       if (!rgb) continue;
       // A palette with no usable weights still counts: its swatches share equally.
-      const share = paletteTotal > 0 ? Math.max(0, swatch.weight) : 1 / palette.length;
+      const share = paletteTotal > 0 ? (swatch.weight > 0 ? swatch.weight : 0) : 1 / palette.length;
       clusters.push({ weight: share / nonEmpty.length, rgb, lab: rgbToLab(rgb) });
     }
   }

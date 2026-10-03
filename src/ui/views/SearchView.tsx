@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useDerived, useStore } from '../../state/store';
 import { href, replaceRoute } from '../../state/router';
 import { openSheet } from '../../state/ui';
-import { isEmptyQuery, parseQuery, search } from '../../lib/search';
+import { isEmptyQuery, knownTagsOf, parseQuery, search } from '../../lib/search';
 import { Masonry } from '../components/Masonry';
 import { EntryCard, cardExtra, clampRatio } from '../components/EntryCard';
 import { Img } from '../components/Img';
@@ -27,7 +27,8 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
     if (isFinePointer()) inputRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const knownTags = useMemo(() => new Set(tagCounts.keys()), [tagCounts]);
+  // Same known-tag set the engine uses, so hex-like tags (#facade) highlight as tags.
+  const knownTags = useMemo(() => knownTagsOf(index), [index]);
   const parsed = useMemo(() => parseQuery(deferred, knownTags), [deferred, knownTags]);
   const active = !isEmptyQuery(parsed);
   const results = useMemo(() => (active ? search(index, deferred) : []), [index, deferred, active]);
@@ -207,8 +208,8 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
                 return {
                   key: r.entry.id,
                   ratio: cover ? clampRatio(cover.width / cover.height) : null,
-                  extra: cardExtra(r.entry, r),
-                  node: (
+                  extra: () => cardExtra(r.entry, r),
+                  render: () => (
                     <EntryCard
                       entry={r.entry}
                       cover={cover}

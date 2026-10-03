@@ -126,7 +126,7 @@ test.describe('Syble', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Final title' })).toBeVisible();
 
     await page.getByRole('button', { name: '+ tag' }).click();
-    await page.getByRole('textbox', { name: 'New hashtag' }).fill('later');
+    await page.getByLabel('New hashtag').fill('later');
     await page.keyboard.press('Enter');
     await expect(page.getByRole('link', { name: '#later' })).toBeVisible();
 
