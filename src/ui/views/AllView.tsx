@@ -25,6 +25,7 @@ export function AllView() {
           <SortControl value={order} onChange={setOrder} />
         </div>
       </header>
+      <h2 className="visually-hidden">Entries</h2>
       {entries.length ? (
         <EntryGrid entries={entries} />
       ) : (

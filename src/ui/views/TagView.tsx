@@ -51,6 +51,7 @@ export function TagView({ tag }: { tag: string }) {
           <SortControl value={order} onChange={setOrder} />
         </div>
       </header>
+      <h2 className="visually-hidden">Entries</h2>
       {entries.length ? (
         <EntryGrid entries={entries} />
       ) : (

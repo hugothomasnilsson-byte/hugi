@@ -7,6 +7,7 @@ import { exportLibrary, importLibrary, backupFileName, BackupError, type ImportM
 import { clearLibrary } from '../../lib/db';
 import { MOD, formatBytes, plural } from '../format';
 import { useTheme, type ThemePref } from '../theme';
+import { Segmented } from '../components/Segmented';
 
 export function LibraryView() {
   const { byNewest, tagCounts } = useDerived();
@@ -26,29 +27,47 @@ export function LibraryView() {
     void navigator.storage?.persisted?.().then(setPersisted);
   }, [images]);
 
+  // On phones the share sheet saves to Files / Drive / AirDrop. Safari only opens it
+  // straight from a tap, so the backup is prepared first and shared on a second tap.
+  const [ready, setReady] = useState<File | null>(null);
+  const preferShare = () =>
+    window.matchMedia('(pointer: coarse)').matches && typeof navigator.canShare === 'function';
+
   const onExport = async () => {
     setBusy('Preparing backup…');
     setProgress(0);
+    setReady(null);
     try {
       const blob = await exportLibrary(setProgress);
       const name = backupFileName(new Date());
       const file = new File([blob], name, { type: 'application/zip' });
-      // On phones, the share sheet is the natural way to save a file to Files / Drive / AirDrop.
-      const canShare = navigator.canShare?.({ files: [file] }) && window.matchMedia('(pointer: coarse)').matches;
-      if (canShare) {
-        try {
-          await navigator.share({ files: [file], title: name });
-        } catch (err) {
-          if ((err as DOMException).name !== 'AbortError') download(blob, name);
-        }
-      } else download(blob, name);
-      toast(`Backup saved · ${formatBytes(blob.size)}`);
+      if (preferShare() && navigator.canShare({ files: [file] })) setReady(file);
+      else {
+        download(blob, name);
+        toast(`Backup saved · ${formatBytes(blob.size)}`);
+      }
     } catch (err) {
       console.error(err);
       toast('Could not create the backup.');
     } finally {
       setBusy(null);
     }
+  };
+
+  const onShare = () => {
+    if (!ready) return;
+    const file = ready;
+    navigator
+      .share({ files: [file], title: file.name })
+      .then(() => {
+        setReady(null);
+        toast(`Backup saved · ${formatBytes(file.size)}`);
+      })
+      .catch((err: DOMException) => {
+        if (err.name === 'AbortError') return;
+        download(file, file.name);
+        setReady(null);
+      });
   };
 
   const onImport = async (file: File) => {
@@ -112,9 +131,15 @@ export function LibraryView() {
           </p>
         </div>
         <div className="library__actions">
-          <button type="button" className="button button--primary" onClick={onExport} disabled={!!busy || byNewest.length === 0}>
-            Export library
-          </button>
+          {ready ? (
+            <button type="button" className="button button--primary" onClick={onShare}>
+              Save backup ({formatBytes(ready.size)})…
+            </button>
+          ) : (
+            <button type="button" className="button button--primary" onClick={onExport} disabled={!!busy || byNewest.length === 0}>
+              Export library
+            </button>
+          )}
         </div>
       </section>
 
@@ -122,14 +147,15 @@ export function LibraryView() {
         <div className="library__text">
           <h2 className="library__h">Restore</h2>
           <p>Import a Syble backup. Merging keeps everything you have and adds or updates entries from the file.</p>
-          <div className="segmented" role="radiogroup" aria-label="Import mode">
-            <button type="button" role="radio" aria-checked={mode === 'merge'} className={`segmented__opt ${mode === 'merge' ? 'is-on' : ''}`} onClick={() => setMode('merge')}>
-              Merge
-            </button>
-            <button type="button" role="radio" aria-checked={mode === 'replace'} className={`segmented__opt ${mode === 'replace' ? 'is-on' : ''}`} onClick={() => setMode('replace')}>
-              Replace all
-            </button>
-          </div>
+          <Segmented
+            label="Import mode"
+            value={mode}
+            options={[
+              { value: 'merge', label: 'Merge' },
+              { value: 'replace', label: 'Replace all' },
+            ]}
+            onChange={setMode}
+          />
         </div>
         <div className="library__actions">
           <button type="button" className="button" onClick={() => fileRef.current?.click()} disabled={!!busy}>
@@ -165,13 +191,16 @@ export function LibraryView() {
           <h2 className="library__h">Appearance</h2>
         </div>
         <div className="library__actions">
-          <div className="segmented" role="radiogroup" aria-label="Theme">
-            {(['system', 'light', 'dark'] as ThemePref[]).map((t) => (
-              <button key={t} type="button" role="radio" aria-checked={theme === t} className={`segmented__opt ${theme === t ? 'is-on' : ''}`} onClick={() => setTheme(t)}>
-                {t[0].toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
+          <Segmented<ThemePref>
+            label="Theme"
+            value={theme}
+            options={[
+              { value: 'system', label: 'System' },
+              { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
+            ]}
+            onChange={setTheme}
+          />
         </div>
       </section>
 

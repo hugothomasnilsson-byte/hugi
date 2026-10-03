@@ -9,8 +9,8 @@
   --paper-sunk: #eeebe4;
   --ink: #181715;
   --ink-soft: #3d3a35;
-  --muted: #7c776d;
-  --faint: #a8a398;
+  --muted: #6b665d;
+  --faint: #857f74;
   --rule: rgba(24, 23, 21, 0.11);
   --rule-strong: rgba(24, 23, 21, 0.26);
   --accent: #a8432a;
@@ -19,7 +19,9 @@
   --scrim: rgba(246, 244, 239, 0.86);
   --shadow: 0 1px 2px rgba(24, 23, 21, 0.04), 0 18px 48px -18px rgba(24, 23, 21, 0.22);
   --lightbox: #0e0d0c;
-  --focus: rgba(168, 67, 42, 0.45);
+  --focus: var(--accent);
+  --plate-edge: rgba(24, 23, 21, 0.07);
+  --backdrop: rgba(14, 13, 12, 0.42);
 
   --serif: 'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
   --text: 'Newsreader Variable', 'Iowan Old Style', Georgia, serif;
@@ -32,6 +34,8 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --dock-h: 0px;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
 
   color-scheme: light;
 }
@@ -44,14 +48,16 @@
     --ink: #ece8e0;
     --ink-soft: #c9c4b9;
     --muted: #8d877c;
-    --faint: #5f5a51;
+    --faint: #7a746a;
     --rule: rgba(236, 232, 224, 0.1);
     --rule-strong: rgba(236, 232, 224, 0.24);
     --accent: #d9765a;
     --mark-bg: rgba(214, 170, 72, 0.3);
     --scrim: rgba(17, 16, 14, 0.86);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 60px -20px rgba(0, 0, 0, 0.7);
-    --focus: rgba(217, 118, 90, 0.5);
+    --focus: var(--accent);
+    --plate-edge: rgba(236, 232, 224, 0.08);
+    --backdrop: rgba(0, 0, 0, 0.62);
     color-scheme: dark;
   }
 }
@@ -63,14 +69,16 @@
   --ink: #ece8e0;
   --ink-soft: #c9c4b9;
   --muted: #8d877c;
-  --faint: #5f5a51;
+  --faint: #7a746a;
   --rule: rgba(236, 232, 224, 0.1);
   --rule-strong: rgba(236, 232, 224, 0.24);
   --accent: #d9765a;
   --mark-bg: rgba(214, 170, 72, 0.3);
   --scrim: rgba(17, 16, 14, 0.86);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 24px 60px -20px rgba(0, 0, 0, 0.7);
-  --focus: rgba(217, 118, 90, 0.5);
+  --focus: var(--accent);
+  --plate-edge: rgba(236, 232, 224, 0.08);
+  --backdrop: rgba(0, 0, 0, 0.62);
   color-scheme: dark;
 }
 
@@ -178,6 +186,22 @@ mark {
 .serif {
   font-family: var(--serif);
   font-weight: 400;
+}
+
+/* iOS zooms into inputs set below 16px; keep touch inputs at 16px. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Buttons styled as labels or links take the surrounding voice. */
+.label button,
+.label .link {
+  text-transform: inherit;
+  letter-spacing: inherit;
 }
 
 @media (prefers-reduced-motion: reduce) {

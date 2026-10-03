@@ -62,7 +62,8 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
     const value = next.length ? `${next.join(' ')} ` : '';
     setQ(value);
     navigate(href.home(value));
-    inputRef.current?.focus({ preventScroll: true });
+    // On touch, focusing would raise the keyboard over the results.
+    if (isFinePointer()) inputRef.current?.focus({ preventScroll: true });
   };
 
   const complete = (tag: string) => {
@@ -70,11 +71,28 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
     inputRef.current?.focus();
   };
 
+  // Announce the count once typing pauses, rather than re-reading the grid each keystroke.
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    const t = window.setTimeout(
+      () =>
+        setAnnouncement(
+          active ? (results.length ? `${plural(results.length, 'entry', 'entries')} found` : 'No entries found') : '',
+        ),
+      450,
+    );
+    return () => window.clearTimeout(t);
+  }, [active, results.length]);
+
   const recent = byNewest.slice(0, 10);
   const empty = ready && byNewest.length === 0;
 
   return (
     <div className={`search ${active || q.trim() ? 'is-active' : ''}`}>
+      <h1 className="visually-hidden">Search your almanac</h1>
+      <p className="visually-hidden" role="status">
+        {announcement}
+      </p>
       <div className="search__stage">
         <form
           className="search__form"
@@ -82,6 +100,11 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
           onSubmit={(e) => {
             e.preventDefault();
             if (completions.length && parsed.partialTag) return complete(completions[0]);
+            // On phones the Search key is how the keyboard is dismissed; keep the results.
+            if (!isFinePointer()) {
+              inputRef.current?.blur();
+              return;
+            }
             const first = results[0];
             if (first) location.hash = href.entry(first.entry.id);
           }}
@@ -184,7 +207,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
               return (
                 <a key={e.id} href={href.entry(e.id)} className="recent__item">
                   {cover ? (
-                    <Img id={cover.id} alt={e.title || 'Untitled'} ratio={clampRatio(cover.width / cover.height)} className="recent__img" />
+                    <Img id={cover.id} alt="" ratio={clampRatio(cover.width / cover.height)} className="recent__img" />
                   ) : (
                     <div className="recent__img recent__img--text">
                       <span>{entryText(e).slice(0, 160)}</span>
@@ -199,7 +222,7 @@ export function SearchView({ initialQuery }: { initialQuery: string }) {
       )}
 
       {active && (
-        <section className="results" aria-live="polite">
+        <section className="results" aria-label="Results">
           <div className="section-head">
             <h2 className="label">
               {results.length ? plural(results.length, 'entry', 'entries') : 'No entries'}

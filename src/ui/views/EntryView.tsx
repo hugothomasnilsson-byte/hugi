@@ -57,6 +57,13 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
   const idx = images.length ? Math.min(current, images.length - 1) : 0;
   const cover = images[idx];
   const title = entry.title || 'Untitled';
+  // An untitled entry with no image is a passage: its words are the display text.
+  const passage = !entry.title && images.length === 0 && !!entry.notes;
+  // Plates with nothing to read collapse into one line; each can be opened to type text in.
+  const [openPlates, setOpenPlates] = useState<Set<string>>(() => new Set());
+  const hiddenBlank = images.flatMap((m, i) =>
+    isBlank(m, analysis.get(m.id)) && !openPlates.has(m.id) ? [{ id: m.id, n: i + 1 }] : [],
+  );
 
   useEffect(() => {
     document.title = `${title} — Syble`;
@@ -185,8 +192,15 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
 
       <div className="entry__grid">
         <div className="entry__main">
-          <h1 className={`entry__title ${entry.title ? '' : 'is-untitled'}`}>{title}</h1>
-          {entry.notes ? (
+          {passage ? (
+            <>
+              <h1 className="visually-hidden">{entry.notes.slice(0, 80)}</h1>
+              <blockquote className="entry__passage">{entry.notes}</blockquote>
+            </>
+          ) : (
+            <h1 className={`entry__title ${entry.title ? '' : 'is-untitled'}`}>{title}</h1>
+          )}
+          {passage ? null : entry.notes ? (
             <div className="entry__notes">
               {entry.notes.split(/\n{2,}/).map((p, i) => (
                 <p key={i}>{p}</p>
@@ -238,7 +252,7 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
               <dd>
                 <TagEditor entry={entry} library={tagCounts} />
                 {suggestions.length > 0 && (
-                  <div className="suggest suggest--stacked" aria-label="Suggested hashtags">
+                  <div className="suggest suggest--stacked" role="group" aria-label="Suggested hashtags">
                     <span className="label">Suggested</span>
                     <div className="suggest__chips">
                       {suggestions.map((t) => (
@@ -289,9 +303,30 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
             </h2>
             <span className="label faint">Read on this device · searchable</span>
           </div>
-          {images.map((m, i) => (
-            <ExtractedText key={m.id} meta={m} label={images.length > 1 ? `Plate ${i + 1}` : null} live={analysis.get(m.id)} />
-          ))}
+          {images.map((m, i) =>
+            images.length > 1 && isBlank(m, analysis.get(m.id)) && !openPlates.has(m.id) ? null : (
+              <ExtractedText key={m.id} meta={m} label={images.length > 1 ? `Plate ${i + 1}` : null} live={analysis.get(m.id)} />
+            ),
+          )}
+          {images.length > 1 && hiddenBlank.length > 0 && (
+            <p className="ocr__status label">
+              No text found in {hiddenBlank.length === 1 ? 'plate' : 'plates'}{' '}
+              {hiddenBlank.map(({ id, n }, k) => (
+                <span key={id}>
+                  {k > 0 && (k === hiddenBlank.length - 1 ? ' and ' : ', ')}
+                  <button
+                    type="button"
+                    className="link"
+                    aria-label={`Add text for plate ${n}`}
+                    onClick={() => setOpenPlates((prev) => new Set(prev).add(id))}
+                  >
+                    {n}
+                  </button>
+                </span>
+              ))}
+              .
+            </p>
+          )}
         </section>
       )}
 
@@ -320,6 +355,12 @@ function EntryDetail({ entry, images }: { entry: Entry; images: ImageMeta[] }) {
       )}
     </article>
   );
+}
+
+/** A plate whose reading finished with nothing found (and nothing typed in by hand). */
+function isBlank(meta: ImageMeta, live: Analysis | undefined) {
+  const busy = live && (live.status === 'running' || live.status === 'pending');
+  return !busy && meta.ocrStatus === 'done' && !meta.text;
 }
 
 function TagEditor({ entry, library }: { entry: Entry; library: ReadonlyMap<string, number> }) {

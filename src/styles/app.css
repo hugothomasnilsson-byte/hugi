@@ -18,7 +18,8 @@ html.is-locked body {
   width: 100%;
   max-width: var(--max);
   margin: 0 auto;
-  padding: 0 var(--gutter) calc(96px + var(--dock-h) + var(--safe-b));
+  padding: 0 max(var(--gutter), var(--safe-r)) calc(96px + var(--dock-h) + var(--safe-b)) max(var(--gutter), var(--safe-l));
+  outline: none;
 }
 
 .faint {
@@ -53,30 +54,29 @@ button.link {
   color: var(--ink);
 }
 .wordmark__name {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 0.16em;
   font-family: var(--serif);
   font-style: italic;
   font-size: 30px;
   letter-spacing: -0.01em;
 }
-.wordmark__y {
-  position: relative;
-  display: inline-block;
-}
-/* A short red rule — the one mark of colour in the brand. */
-.wordmark__y::after {
+/* A short red rule — the one mark of colour in the brand — that draws out on hover. */
+.wordmark__name::after {
   content: '';
   position: absolute;
-  left: 50%;
-  bottom: -0.2em;
-  width: 0.36em;
+  left: 0.04em;
+  bottom: 0;
+  width: 100%;
   height: 1.5px;
-  margin-left: -0.14em;
   background: var(--accent);
+  transform: scaleX(0.22);
   transform-origin: left center;
-  transition: transform 0.5s var(--ease-out);
+  transition: transform 0.6s var(--ease-out);
 }
-.wordmark:hover .wordmark__y::after {
-  transform: scaleX(2.2);
+.wordmark:hover .wordmark__name::after {
+  transform: scaleX(0.96);
 }
 
 /* ---------------- Header ---------------- */
@@ -92,7 +92,7 @@ button.link {
   width: 100%;
   max-width: var(--max);
   margin: 0 auto;
-  padding: calc(18px + env(safe-area-inset-top, 0px)) var(--gutter) 16px;
+  padding: calc(18px + env(safe-area-inset-top, 0px)) max(var(--gutter), var(--safe-r)) 16px max(var(--gutter), var(--safe-l));
   background: linear-gradient(var(--paper) 70%, transparent);
 }
 
@@ -184,7 +184,7 @@ button.link {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 16px calc(12px + var(--safe-b));
+    padding: 10px calc(16px + var(--safe-r)) calc(12px + var(--safe-b)) calc(16px + var(--safe-l));
     background: linear-gradient(transparent, var(--paper) 38%);
     pointer-events: none;
   }
@@ -232,7 +232,7 @@ button.link {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: calc(62dvh - 40px);
+  min-height: calc(50dvh - 40px);
   justify-content: center;
   padding-top: 4vh;
   transition: min-height 0.6s var(--ease-out), padding 0.6s var(--ease-out);
@@ -246,7 +246,14 @@ button.link {
 
 .search__form {
   position: relative;
-  width: min(100%, 860px);
+  width: 100%;
+  max-width: 860px;
+  transition: max-width 0.6s var(--ease-out);
+}
+.search.is-active .search__form,
+.search.is-active .search__completions,
+.search.is-active .search__tags {
+  max-width: 100%;
 }
 
 .search__input {
@@ -318,9 +325,11 @@ button.link {
   justify-content: flex-start;
   align-items: center;
   gap: 8px;
-  width: min(100%, 860px);
+  width: 100%;
+  max-width: 860px;
   margin-top: 22px;
   animation: rise 0.5s var(--ease-out) both;
+  transition: max-width 0.6s var(--ease-out);
 }
 .search__tags {
   margin-top: 28px;
@@ -376,7 +385,7 @@ button.chip:hover {
   background: var(--paper-raised);
 }
 .chip__count {
-  color: var(--faint);
+  color: var(--muted);
   font-size: 11px;
 }
 .chip.is-on {
@@ -424,11 +433,11 @@ button.chip:hover {
 .chip--suggest {
   padding: 0 4px 0 0;
   border-style: dashed;
-  overflow: hidden;
 }
 .chip--suggest .chip__add {
   height: 100%;
   padding: 0 4px 0 12px;
+  border-radius: 999px 0 0 999px;
   color: var(--ink-soft);
   transition: color 0.2s var(--ease);
 }
@@ -468,7 +477,7 @@ button.chip:hover {
 /* ---------------- Recently added ---------------- */
 
 .recent {
-  margin-top: clamp(24px, 6vh, 64px);
+  margin-top: clamp(24px, 5vh, 56px);
   animation: rise 0.8s 0.05s var(--ease-out) both;
 }
 .recent .section-head {
@@ -478,6 +487,7 @@ button.chip:hover {
   display: flex;
   gap: clamp(16px, 2vw, 28px);
   overflow-x: auto;
+  padding-top: 6px;
   padding-bottom: 12px;
   margin: 0 calc(var(--gutter) * -1);
   padding-left: var(--gutter);
@@ -546,8 +556,13 @@ button.chip:hover {
 /* ---------------- Results ---------------- */
 
 .results {
-  margin-top: 28px;
+  margin-top: 8px;
   animation: rise 0.4s var(--ease-out) both;
+}
+.results > .section-head {
+  border-top: 0;
+  padding-top: 18px;
+  margin-bottom: 24px;
 }
 .results__none {
   padding: 8vh 0;
@@ -597,12 +612,25 @@ button.chip:hover {
 .img.is-loaded {
   background: transparent;
 }
+/* A hairline keeps white or black screenshots reading as plates on the page. */
+.img::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 1px var(--plate-edge);
+  pointer-events: none;
+}
+.lightbox__img::after {
+  content: none;
+}
 
 /* ---------------- Card ---------------- */
 
 .card {
   display: block;
   color: inherit;
+}
+.masonry__cell.is-new .card {
   animation: rise 0.5s var(--ease-out) both;
 }
 .card__visual {
@@ -680,13 +708,15 @@ button.chip:hover {
 }
 .card__snippet {
   margin: 8px 0 0;
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-family: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
   color: var(--ink-soft);
   overflow-wrap: anywhere;
 }
 .card__snippet-field {
   margin-right: 8px;
+  font-family: var(--mono);
   font-size: 10px;
 }
 .card__swatches {
@@ -722,7 +752,7 @@ button.chip:hover {
 .card__found {
   margin-top: 6px;
   font-size: 10px;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 /* ---------------- Pages ---------------- */
@@ -757,7 +787,7 @@ button.chip:hover {
 .page-head__row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   margin-top: 24px;
@@ -784,25 +814,24 @@ button.chip:hover {
 
 .segmented {
   display: inline-flex;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--paper-sunk);
+  gap: 20px;
 }
 .segmented__opt {
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-size: 12.5px;
+  position: relative;
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
-  transition: background-color 0.25s var(--ease), color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+  transition: color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 .segmented__opt:hover {
   color: var(--ink);
 }
 .segmented__opt.is-on {
-  background: var(--paper-raised);
   color: var(--ink);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 -1px 0 currentColor;
 }
 
 .button {
@@ -1001,14 +1030,47 @@ button.chip:hover {
 .suggest > .label {
   margin-right: 4px;
 }
-.suggest--stacked {
-  flex-direction: column;
-  align-items: flex-start;
-}
 .suggest__chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+/* On the source page suggestions are a quiet line of text beneath the tags. */
+.suggest--stacked {
+  align-items: baseline;
+  gap: 2px 14px;
+  margin-top: 14px;
+}
+.suggest--stacked .suggest__chips {
+  gap: 2px 14px;
+}
+.suggest--stacked .chip--suggest {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.suggest--stacked .chip__add {
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.suggest--stacked .chip__add:hover {
+  color: var(--ink);
+}
+.suggest--stacked .chip__x {
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+}
+.suggest--stacked .chip--suggest:hover .chip__x,
+.suggest--stacked .chip__x:focus-visible {
+  opacity: 1;
+}
+@media not all and (hover: hover) {
+  .suggest--stacked .chip__x {
+    opacity: 0.6;
+  }
 }
 
 /* ---------------- Sheet (add / edit) ---------------- */
@@ -1027,14 +1089,22 @@ dialog {
   margin: auto;
   background: var(--paper);
   border-radius: 6px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 0 0 1px var(--rule), var(--shadow);
   overflow: hidden;
+}
+:root[data-theme='dark'] .sheet {
+  background: var(--paper-raised);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .sheet {
+    background: var(--paper-raised);
+  }
 }
 .sheet[open] {
   animation: sheet-in 0.45s var(--ease-out) both;
 }
 .sheet::backdrop {
-  background: rgba(14, 13, 12, 0.42);
+  background: var(--backdrop);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   animation: fade-in 0.35s var(--ease) both;
@@ -1143,8 +1213,8 @@ dialog {
 .plates > .plate:first-child {
   grid-column: 1 / -1;
 }
-.plates > .plate:first-child .plate__frame {
-  max-height: 46vh;
+.plates > .plate:first-child {
+  width: min(100%, calc(46vh * var(--r, 1)));
 }
 .plate__frame {
   position: relative;
@@ -1204,19 +1274,23 @@ dialog {
   color: var(--ink);
 }
 
+.plate__bar .label:first-child {
+  display: inline-flex;
+  gap: 10px;
+  align-items: baseline;
+}
 .ocr-badge {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  overflow: hidden;
-  padding: 5px 9px;
-  border-radius: 999px;
-  background: var(--scrim);
-  color: var(--ink-soft);
   font-size: 10px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  color: var(--muted);
   animation: fade-in 0.3s var(--ease) both;
+}
+.plate__progress {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform 0.3s var(--ease);
 }
 .ocr-badge__bar {
   position: absolute;
@@ -1335,7 +1409,7 @@ dialog {
 }
 /* Size the hero by its aspect ratio within the height limit. */
 .entry__hero-btn .img {
-  width: min(100%, calc(min(78vh, 1100px) * var(--r, 1)));
+  width: min(100%, calc(min(100dvh - 300px, 1100px) * var(--r, 1)));
 }
 .entry__hero-img img {
   object-fit: contain;
@@ -1352,9 +1426,9 @@ dialog {
 }
 .entry__thumbs {
   display: flex;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
+  gap: 14px;
+  margin: -6px -5px;
+  padding: 6px 5px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
@@ -1362,7 +1436,7 @@ dialog {
 .entry__thumb {
   display: block;
   height: 54px;
-  opacity: 0.45;
+  opacity: 0.6;
   transition: opacity 0.25s var(--ease);
 }
 .entry__thumb .img {
@@ -1374,16 +1448,29 @@ dialog {
   opacity: 1;
 }
 .entry__thumb.is-on {
-  outline: 1px solid var(--ink);
-  outline-offset: 3px;
+  box-shadow: 0 7px 0 -6px var(--ink);
 }
 
 .entry__grid {
   display: grid;
   grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+  align-items: start;
   gap: clamp(32px, 6vw, 96px);
   padding-top: clamp(20px, 3vh, 32px);
   border-top: 1px solid var(--rule);
+}
+.entry__title.is-untitled {
+  font-size: clamp(28px, 3vw, 40px);
+}
+.entry__passage {
+  margin: 0 0 28px;
+  font-family: var(--text);
+  font-size: clamp(26px, 3vw, 40px);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  max-width: 32ch;
+  text-wrap: pretty;
+  white-space: pre-wrap;
 }
 .entry__title {
   margin: 0 0 28px;
@@ -1488,7 +1575,7 @@ dialog {
 
 .palette {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 72px));
   gap: 12px 8px;
   margin: 0;
   padding: 0;
@@ -1601,17 +1688,23 @@ dialog {
   gap: 10px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
   .entry__grid {
     grid-template-columns: 1fr;
     gap: 24px;
   }
+  .entry__meta {
+    max-width: 640px;
+  }
+}
+@media (max-width: 860px) {
   .entry__hero {
     margin-left: calc(var(--gutter) * -1);
     margin-right: calc(var(--gutter) * -1);
   }
+  /* Leave room for the header, action bar, plate strip and dock. */
   .entry__hero-btn .img {
-    width: min(100%, calc(72vh * var(--r, 1)));
+    width: min(100%, calc((100svh - 200px - var(--dock-h) - var(--safe-b)) * var(--r, 1)));
   }
   .entry__plates {
     padding: 0 var(--gutter);
@@ -1642,7 +1735,7 @@ dialog {
   align-items: center;
   justify-content: center;
   padding: 56px 24px;
-  touch-action: pan-y pinch-zoom;
+  touch-action: pinch-zoom;
 }
 .lightbox.is-zoomed .lightbox__stage {
   display: block;
@@ -1690,7 +1783,7 @@ dialog {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: calc(16px + env(safe-area-inset-top, 0px)) 24px 16px;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) calc(24px + var(--safe-r)) 16px calc(24px + var(--safe-l));
   color: rgba(236, 232, 224, 0.7);
   pointer-events: none;
 }
@@ -1725,10 +1818,10 @@ dialog {
   color: #fff;
 }
 .lightbox__nav--prev {
-  left: 16px;
+  left: calc(16px + var(--safe-l));
 }
 .lightbox__nav--next {
-  right: 16px;
+  right: calc(16px + var(--safe-r));
 }
 @media (max-width: 720px) {
   .lightbox__nav {
@@ -1885,7 +1978,7 @@ dialog {
 .library__colophon {
   margin-top: 48px;
   text-align: center;
-  color: var(--faint);
+  color: var(--muted);
 }
 .shortcuts {
   display: grid;
@@ -2027,7 +2120,7 @@ kbd {
     overflow-x: auto;
     margin-left: -16px;
     margin-right: -16px;
-    padding: 0 16px 4px;
+    padding: 6px 16px 8px;
     width: calc(100% + 32px);
     scrollbar-width: none;
   }
@@ -2052,6 +2145,12 @@ kbd {
     height: 34px;
     padding: 0 14px;
   }
+  .chip--solid {
+    padding-right: 8px;
+  }
+  .chip--suggest {
+    padding: 0 6px 0 0;
+  }
   .page-head__row {
     align-items: flex-start;
   }
@@ -2069,4 +2168,75 @@ kbd {
   .entry__actions {
     gap: 18px;
   }
+}
+
+/* ---------------- Touch targets ---------------- */
+
+/* Enlarge hit areas on touch screens without changing the look. */
+@media (pointer: coarse) {
+  .entry__bar .link,
+  .entry__actions button,
+  .header__link,
+  .search__clear,
+  .sheet__cancel,
+  .sheet__save-top,
+  .lightbox__close,
+  .ocr__edit-btn,
+  .ocr__status .link,
+  .section-head .link,
+  .toast__action,
+  .segmented__opt {
+    position: relative;
+  }
+  .entry__bar .link::before,
+  .entry__actions button::before,
+  .header__link::before,
+  .search__clear::before,
+  .sheet__cancel::before,
+  .sheet__save-top::before,
+  .lightbox__close::before,
+  .ocr__edit-btn::before,
+  .ocr__status .link::before,
+  .section-head .link::before,
+  .toast__action::before,
+  .segmented__opt::before {
+    content: '';
+    position: absolute;
+    inset: -14px -10px;
+  }
+  .chip__x {
+    width: 32px;
+    height: 32px;
+  }
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* The hashtag list opens upwards in the sheet on phones, above the keyboard. */
+@media (max-width: 720px) {
+  .sheet .tag-input__list {
+    top: auto;
+    bottom: calc(100% + 6px);
+    max-height: 40vh;
+    overflow: auto;
+  }
+  .sheet__head,
+  .sheet__body,
+  .sheet__foot {
+    padding-left: calc(16px + var(--safe-l));
+    padding-right: calc(16px + var(--safe-r));
+  }
+  .sheet,
+  .sheet__panel {
+    height: var(--vvh, 100dvh);
+    max-height: var(--vvh, 100dvh);
+  }
+}
+
+/* Headings receive focus on page changes for assistive tech; no ring for that. */
+#main h1:focus,
+#main:focus {
+  outline: none;
 }

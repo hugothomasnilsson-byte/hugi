@@ -2,6 +2,7 @@ import type { Entry, SortOrder } from '../../types';
 import { useStore } from '../../state/store';
 import { Masonry } from './Masonry';
 import { EntryCard, cardExtra, clampRatio } from './EntryCard';
+import { Segmented } from './Segmented';
 
 export function sortEntries(entries: Entry[], order: SortOrder): Entry[] {
   const list = [...entries];
@@ -40,20 +41,5 @@ const ORDERS: { value: SortOrder; label: string }[] = [
 ];
 
 export function SortControl({ value, onChange }: { value: SortOrder; onChange: (v: SortOrder) => void }) {
-  return (
-    <div className="segmented" role="radiogroup" aria-label="Sort by">
-      {ORDERS.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          role="radio"
-          aria-checked={value === o.value}
-          className={`segmented__opt ${value === o.value ? 'is-on' : ''}`}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
+  return <Segmented label="Sort by" value={value} options={ORDERS} onChange={onChange} />;
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useDerived } from '../../state/store';
 import { href } from '../../state/router';
 import { plural } from '../format';
+import { Segmented } from '../components/Segmented';
 
 type Mode = 'az' | 'count';
 
@@ -46,14 +47,15 @@ export function TagsView() {
             onChange={(e) => setFilter(e.target.value)}
             aria-label="Filter tags"
           />
-          <div className="segmented" role="radiogroup" aria-label="Order">
-            <button type="button" role="radio" aria-checked={mode === 'az'} className={`segmented__opt ${mode === 'az' ? 'is-on' : ''}`} onClick={() => setMode('az')}>
-              A–Z
-            </button>
-            <button type="button" role="radio" aria-checked={mode === 'count'} className={`segmented__opt ${mode === 'count' ? 'is-on' : ''}`} onClick={() => setMode('count')}>
-              Most used
-            </button>
-          </div>
+          <Segmented
+            label="Order"
+            value={mode}
+            options={[
+              { value: 'az', label: 'A–Z' },
+              { value: 'count', label: 'Most used' },
+            ]}
+            onChange={setMode}
+          />
         </div>
       </header>
 

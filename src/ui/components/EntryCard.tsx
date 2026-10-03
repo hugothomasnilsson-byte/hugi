@@ -31,14 +31,20 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
     ? [...entry.tags].sort((a, b) => Number(tagMatches(b, query)) - Number(tagMatches(a, query)))
     : entry.tags;
   const shownTags = ordered.slice(0, 4);
-  const matchedNotTitle = result?.fields.filter((f) => f !== 'title') ?? [];
+  const unseen = unseenFields(result);
 
   return (
     <a href={href.entry(entry.id)} className={`card ${cover ? '' : 'card--text'}`}>
       {cover ? (
         <div className="card__visual">
-          <Img id={cover.id} alt={title} ratio={clampRatio(ratio!)} className="card__img" />
-          {imageCount > 1 && <span className="card__count mono">{imageCount}</span>}
+          {/* The link already carries the title; the image needs no separate name. */}
+          <Img id={cover.id} alt="" ratio={clampRatio(ratio!)} className="card__img" />
+          {imageCount > 1 && (
+            <span className="card__count mono">
+              <span aria-hidden="true">{imageCount}</span>
+              <span className="visually-hidden">{imageCount} images</span>
+            </span>
+          )}
         </div>
       ) : (
         <div className="card__visual card__visual--text">
@@ -58,7 +64,14 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
           </p>
         )}
         {result && result.swatches.length > 0 && (
-          <div className="card__swatches" aria-label="Matching colours">
+          <div
+            className="card__swatches"
+            role="img"
+            aria-label={`Matching colours: ${result.swatches
+              .slice(0, 4)
+              .map((s) => s.name)
+              .join(', ')}`}
+          >
             {result.swatches.slice(0, 4).map((s) => (
               <span key={s.hex} className="swatch-dot" style={{ background: s.hex }} title={`${s.name} ${s.hex}`} />
             ))}
@@ -77,12 +90,21 @@ export function EntryCard({ entry, cover, imageCount, result, query }: Props) {
             </span>
           )}
         </div>
-        {matchedNotTitle.length > 0 && (
-          <div className="card__found label">Found in {matchedNotTitle.map((f) => FIELD_LABEL[f]).join(' · ')}</div>
-        )}
+        {unseen.length > 0 && <div className="card__found label">Found in {unseen.map((f) => FIELD_LABEL[f]).join(' · ')}</div>}
       </div>
     </a>
   );
+}
+
+/**
+ * Matched fields the caption doesn't already show: the title, tags, swatches and
+ * snippet speak for themselves, so "Found in" only names what is otherwise invisible.
+ */
+function unseenFields(result?: SearchResult): SearchField[] {
+  if (!result) return [];
+  const shown = new Set<SearchField>(['title', 'tags', 'colour']);
+  if (result.snippet) shown.add(result.snippet.field);
+  return result.fields.filter((f) => !shown.has(f));
 }
 
 /** Very tall or very wide covers are cropped to keep the grid calm. */
@@ -96,6 +118,6 @@ export function cardExtra(entry: Entry, result?: SearchResult) {
   if (entry.title.length > 34) h += 26;
   if (result?.snippet) h += 64;
   if (result?.swatches.length) h += 22;
-  if (result && result.fields.some((f) => f !== 'title')) h += 20;
+  if (unseenFields(result).length) h += 20;
   return h;
 }

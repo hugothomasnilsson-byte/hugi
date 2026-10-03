@@ -27,7 +27,8 @@ function focusSearch() {
   if (existing) {
     existing.focus();
     existing.select();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
     return;
   }
   const standIn = document.createElement('input');
@@ -148,7 +149,7 @@ export function App() {
   return (
     <div className={`app app--${route.name}`}>
       <Header route={route} />
-      <main className="main" id="main">
+      <main className="main" id="main" tabIndex={-1}>
         {error ? (
           <div className="page page--narrow">
             <div className="empty">
@@ -215,8 +216,19 @@ function useScrollMemory(route: Route) {
 
   // Typing a search replaces the URL but is not a page change.
   const pageKey = route.name === 'home' ? 'home' : JSON.stringify(route);
+  const firstRun = useRef(true);
   useLayoutEffect(() => {
     keyRef.current = historyKey();
+    // Move focus to the new page's heading so keyboard and screen-reader users
+    // land on it (not on the first page load, and never away from an open dialog).
+    if (firstRun.current) firstRun.current = false;
+    else if (!document.querySelector('dialog[open]')) {
+      const target = document.querySelector<HTMLElement>('#main h1') ?? document.getElementById('main');
+      if (target) {
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      }
+    }
     const saved = wasTraversal() ? positions.current.get(keyRef.current) : undefined;
     if (saved === undefined) {
       window.scrollTo(0, 0);

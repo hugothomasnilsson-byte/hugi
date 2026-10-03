@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ID, ImageMeta } from '../../types';
 import {
   analyzeImage,
@@ -171,10 +171,24 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
   useEffect(() => {
     const dlg = dialogRef.current;
     if (!dlg) return;
+    // Return focus to whatever opened the sheet (Add, Edit…) when it closes.
+    const opener = document.activeElement as HTMLElement | null;
     if (!dlg.open) dlg.showModal();
-    document.documentElement.classList.add('is-locked');
+    const root = document.documentElement;
+    root.classList.add('is-locked');
     if (!request.files?.length && window.matchMedia('(hover: hover)').matches) titleRef.current?.focus();
-    return () => document.documentElement.classList.remove('is-locked');
+
+    // Track the visible viewport so the footer's Save stays above the iOS keyboard.
+    const vv = window.visualViewport;
+    const fit = () => vv && root.style.setProperty('--vvh', `${vv.height}px`);
+    fit();
+    vv?.addEventListener('resize', fit);
+    return () => {
+      vv?.removeEventListener('resize', fit);
+      root.style.removeProperty('--vvh');
+      root.classList.remove('is-locked');
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, [request.files]);
 
   const cleanup = (saved: boolean) => {
@@ -322,7 +336,11 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
                 {images.map((img, i) => {
                   const a = analysis.get(img.id);
                   return (
-                    <li key={img.id} className={`plate ${img.status}`}>
+                    <li
+                      key={img.id}
+                      className={`plate ${img.status}`}
+                      style={{ '--r': Math.min(2, Math.max(0.5, img.ratio)) } as CSSProperties}
+                    >
                       <div className="plate__frame" style={{ aspectRatio: String(Math.min(2, Math.max(0.5, img.ratio))) }}>
                         {img.meta ? (
                           <Img id={img.id} alt={`Image ${i + 1}`} className="plate__img" />
@@ -331,10 +349,15 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
                         ) : (
                           <div className="plate__placeholder label">{img.status === 'error' ? 'Unreadable' : 'Preparing…'}</div>
                         )}
-                        {!img.meta && img.status === 'ready' && a && <OcrBadge analysis={a} />}
+                        {!img.meta && a?.status === 'running' && (
+                          <span className="plate__progress" style={{ transform: `scaleX(${a.progress})` }} aria-hidden="true" />
+                        )}
                       </div>
                       <div className="plate__bar">
-                        <span className="label">{i === 0 ? 'Cover' : `Plate ${i + 1}`}</span>
+                        <span className="label">
+                          {i === 0 ? 'Cover' : `Plate ${i + 1}`}
+                          {!img.meta && img.status === 'ready' && a && <OcrBadge analysis={a} />}
+                        </span>
                         <span className="plate__actions">
                           {i > 0 && (
                             <button type="button" className="icon-btn" onClick={() => moveImage(img.id, -1)} aria-label="Move earlier">
@@ -447,7 +470,7 @@ export function EntrySheet({ request }: { request: SheetRequest }) {
                 }}
               />
               {suggestions.length > 0 && (
-                <div className="suggest" aria-label="Suggested hashtags">
+                <div className="suggest" role="group" aria-label="Suggested hashtags">
                   <span className="label">Suggested</span>
                   {suggestions.map((t) => (
                     <span key={t} className="chip chip--suggest">

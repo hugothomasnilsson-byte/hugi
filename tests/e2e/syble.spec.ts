@@ -56,7 +56,7 @@ test.describe('Syble', () => {
     const card = page.locator('.card').first();
     await expect(card).toContainText('Morning light');
     await expect(card.locator('mark').first()).toHaveText(/portra/i);
-    await expect(card).toContainText(/image text/i);
+    await expect(card.locator('.card__snippet')).toContainText(/in image/i);
   });
 
   test('combines keywords and hashtags, highlights matches', async ({ page }) => {

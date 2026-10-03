@@ -8,10 +8,11 @@ export function OcrBadge({ analysis }: { analysis: Analysis }) {
   }
   if (analysis.status === 'error') return <span className="ocr-badge is-error label">Text unreadable</span>;
   const pct = Math.round(analysis.progress * 100);
+  if (analysis.status !== 'running') return <span className="ocr-badge is-queued label">Queued to read</span>;
+  // A progressbar rather than a live region, so screen readers aren't read every percent.
   return (
-    <span className="ocr-badge label" role="status">
-      <span className="ocr-badge__bar" style={{ transform: `scaleX(${analysis.progress})` }} />
-      {analysis.status === 'running' ? `Reading text ${pct}%` : 'Queued to read'}
+    <span className="ocr-badge label" role="progressbar" aria-label="Reading text" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+      Reading text {pct}%
     </span>
   );
 }

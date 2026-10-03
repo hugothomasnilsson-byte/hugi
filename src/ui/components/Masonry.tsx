@@ -33,6 +33,8 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
   const ref = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  // Cards animate in only the first time they appear, not when live search reshuffles them.
+  const seen = useRef(new Set<string>());
   const pageKey = useRef(historyKey());
   const [limit, setLimit] = useState(() => pagedTo.get(pageKey.current) ?? PAGE);
 
@@ -48,6 +50,12 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Remember what has been shown once it is on screen (after commit, so StrictMode's
+  // double render doesn't swallow the first animation).
+  useEffect(() => {
+    for (const item of items.slice(0, limit)) seen.current.add(item.key);
+  });
 
   // Reset paging when the result set changes (but not on mount, which may be a Back).
   const signature = `${items[0]?.key}|${items.length}`;
@@ -91,8 +99,9 @@ export function Masonry({ items, gap }: { items: MasonryItem[]; gap?: number }) 
     for (let c = 1; c < cols; c++) if (heights[c] < heights[shortest] - 1) shortest = c;
     const visual = item.ratio ? colW / item.ratio : colW * 0.62;
     heights[shortest] += visual + item.extra() + g;
+    const isNew = !seen.current.has(item.key);
     columns[shortest].push(
-      <div key={item.key} className="masonry__cell">
+      <div key={item.key} className={`masonry__cell ${isNew ? 'is-new' : ''}`}>
         {item.render()}
       </div>,
     );

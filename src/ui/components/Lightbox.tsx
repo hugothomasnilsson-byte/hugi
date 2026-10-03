@@ -15,6 +15,8 @@ export function Lightbox({ images, start, title, onClose }: Props) {
   const [zoomed, setZoomed] = useState(false);
   const ref = useRef<HTMLDialogElement>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  /** Set when a gesture was a swipe, so the click that follows doesn't toggle zoom. */
+  const swiped = useRef(false);
   const count = images.length;
   const img = images[index];
 
@@ -27,9 +29,15 @@ export function Lightbox({ images, start, title, onClose }: Props) {
   useEffect(() => {
     const dlg = ref.current;
     if (!dlg) return;
+    const opener = document.activeElement as HTMLElement | null;
     if (!dlg.open) dlg.showModal();
+    // showModal focuses the first control (the image); Close is the expected start.
+    dlg.querySelector<HTMLElement>('.lightbox__close')?.focus();
     document.documentElement.classList.add('is-locked');
-    return () => document.documentElement.classList.remove('is-locked');
+    return () => {
+      document.documentElement.classList.remove('is-locked');
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, [hasImage]);
 
   useEffect(() => {
@@ -63,6 +71,7 @@ export function Lightbox({ images, start, title, onClose }: Props) {
           if (e.target === e.currentTarget && !zoomed) onClose(index);
         }}
         onPointerDown={(e) => {
+          swiped.current = false;
           if (!zoomed) swipe.current = { x: e.clientX, y: e.clientY };
         }}
         onPointerUp={(e) => {
@@ -71,6 +80,7 @@ export function Lightbox({ images, start, title, onClose }: Props) {
           if (!s || zoomed) return;
           const dx = e.clientX - s.x;
           const dy = e.clientY - s.y;
+          swiped.current = Math.hypot(dx, dy) > 12;
           if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && count > 1) go(dx < 0 ? 1 : -1);
           else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.5) onClose(index);
         }}
@@ -78,7 +88,9 @@ export function Lightbox({ images, start, title, onClose }: Props) {
         <button
           type="button"
           className="lightbox__img-btn"
-          onClick={() => setZoomed((z) => !z)}
+          onClick={() => {
+            if (!swiped.current) setZoomed((z) => !z);
+          }}
           aria-label={zoomed ? 'Fit to screen' : 'View actual size'}
           style={zoomed ? { width: img.width, height: img.height } : undefined}
         >
@@ -93,7 +105,7 @@ export function Lightbox({ images, start, title, onClose }: Props) {
         <span className="lightbox__dims mono">
           {img.width} × {img.height}
         </span>
-        <button type="button" className="lightbox__close label" onClick={() => onClose(index)} autoFocus>
+        <button type="button" className="lightbox__close label" onClick={() => onClose(index)}>
           Close
         </button>
       </div>
