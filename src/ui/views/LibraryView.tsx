@@ -314,11 +314,18 @@ function ReadingLanguages() {
     <section className="library__section">
       <div className="library__text">
         <h2 className="library__h">Reading text</h2>
-        <p>
-          Text in your images is read on this device. Add the languages you collect in, so accents and special letters
-          come out right.
-        </p>
-        <div className="chip-row" role="group" aria-label="Recognition languages">
+        {import.meta.env.VITE_SINGLEFILE === '1' ? (
+          <p>
+            Text in your images is read on this device, in English. For other languages, use the installable version of
+            Syble.
+          </p>
+        ) : (
+          <p>
+            Text in your images is read on this device. Add the languages you collect in, so accents and special letters
+            come out right.
+          </p>
+        )}
+        <div className="chip-row" role="group" aria-label="Recognition languages" hidden={import.meta.env.VITE_SINGLEFILE === '1'}>
           {OCR_LANGUAGES.map((l) => {
             const on = langs.includes(l.code);
             return (

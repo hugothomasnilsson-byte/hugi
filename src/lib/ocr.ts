@@ -189,6 +189,8 @@ let engine: Promise<Tesseract.Worker> | null = null;
 let languages: string[] = readLanguages();
 
 function readLanguages(): string[] {
+  // The standalone file carries only the English model.
+  if (import.meta.env.VITE_SINGLEFILE === '1') return ['eng'];
   try {
     return getOcrLanguages();
   } catch {
@@ -250,15 +252,25 @@ async function startEngine(generation: number): Promise<Tesseract.Worker> {
     errorHandler: (error: unknown) => activeJob?.fail(new Error(`Text recognition failed: ${String(error)}`)),
   };
 
-  // The hosted preview's server only serves web file types, so it ships the same
-  // language data under a .wasm name and hands it to the engine directly.
+  // The standalone file carries the engine inside itself; the hosted preview's
+  // server only serves web file types, so it ships the language data under a
+  // .wasm name. Both hand the data to the engine directly.
+  const single = import.meta.env.VITE_SINGLEFILE === '1' ? await import('./ocrInline') : null;
+  if (single) {
+    options.workerPath = single.workerPath;
+    options.corePath = single.corePath;
+  }
   const langs: string | Tesseract.Lang[] =
-    import.meta.env.VITE_DEMO === '1'
+    single || import.meta.env.VITE_DEMO === '1'
       ? await Promise.all(
           languages.map(async (code) => {
-            const res = await fetch(asset(`lang/${code}.traineddata.gz.wasm`));
-            if (!res.ok) throw new Error(`Language data unavailable (${res.status})`);
-            const bytes = new Uint8Array(await res.arrayBuffer());
+            let bytes: Uint8Array;
+            if (single) bytes = await single.languageData(code);
+            else {
+              const res = await fetch(asset(`lang/${code}.traineddata.gz.wasm`));
+              if (!res.ok) throw new Error(`Language data unavailable (${res.status})`);
+              bytes = new Uint8Array(await res.arrayBuffer());
+            }
             // tesseract.js sends this object twice: to load the data (reading `data` as
             // bytes) and then to initialise, where it mistakenly reads `data` as the
             // language code. Serve the bytes once, then the code.

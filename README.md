@@ -63,6 +63,15 @@ Open **Library → Keep data on this device** to ask the browser not to clear st
 **export a backup** now and then. On iPhone, an app added to the Home Screen has its own storage,
 separate from Safari tabs.
 
+## Standalone file
+
+`npm run build:single` writes `dist-single/syble.html`. That single 9 MB file holds the whole app,
+including its fonts and the English text reader. Open it by double-clicking: no server, no install,
+no network. Your library is saved in the browser for that file, so keep the file in one place and
+always open it from there. Moving or renaming the file starts an empty library, so export a backup
+first. It reads English text only and doesn't work offline as an installable app; for that, publish
+the full app (above).
+
 ## Development
 
 ```bash
@@ -70,6 +79,7 @@ npm install          # also copies the OCR engine into public/tesseract
 npm run dev          # http://localhost:5173
 npm test             # unit tests (vitest, 363 tests)
 npm run build        # production build in dist/ (type-checks first)
+npm run build:single # one self-contained HTML file in dist-single/syble.html
 npm run e2e          # end-to-end tests in Chromium, desktop and phone (builds and serves the app)
 node tests/ocr/run-ocr-check.mjs   # real OCR check in a browser, with the network blocked
 ```

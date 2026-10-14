@@ -2,12 +2,30 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// The standalone build packs everything into one HTML file that runs from disk
+// (scripts/build-single.mjs inlines the output); it has no service worker.
+const single = process.env.VITE_SINGLEFILE === '1';
+
 // Relative base so the build works from any sub-path (e.g. GitHub Pages /hugi/).
 export default defineConfig({
   base: './',
+  publicDir: single ? false : 'public',
+  // Lets the standalone build embed the OCR language model (a .gz file).
+  assetsInclude: single ? ['**/*.traineddata.gz'] : [],
+  build: single
+    ? {
+        outDir: 'dist-single',
+        assetsInlineLimit: () => true,
+        cssCodeSplit: false,
+        modulePreload: false,
+        chunkSizeWarningLimit: 20_000,
+        rollupOptions: { output: { codeSplitting: false } },
+      }
+    : undefined,
   plugins: [
     react(),
     VitePWA({
+      disable: single,
       registerType: 'autoUpdate',
       injectRegister: false,
       includeAssets: ['apple-touch-icon.png'],

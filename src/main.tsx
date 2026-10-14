@@ -31,7 +31,12 @@ createRoot(document.getElementById('root')!).render(
 
 // The service worker precaches the whole app (including the OCR engine) so
 // Syble opens and works with no connection at all.
-if ('serviceWorker' in navigator && import.meta.env.PROD && import.meta.env.VITE_DEMO !== '1') {
+if (
+  'serviceWorker' in navigator &&
+  import.meta.env.PROD &&
+  import.meta.env.VITE_DEMO !== '1' &&
+  import.meta.env.VITE_SINGLEFILE !== '1'
+) {
   registerSW({
     immediate: true,
     onOfflineReady() {
